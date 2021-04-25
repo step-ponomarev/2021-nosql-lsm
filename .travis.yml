@@ -1,0 +1,19 @@
+language: java
+
+dist: xenial
+jdk: openjdk11
+
+env:
+   global:
+   - _JAVA_OPTIONS="-Xms256m -Xmx256m"
+
+script: ./gradlew --info test
+
+before_cache:
+  - rm -f  $HOME/.gradle/caches/modules-2/modules-2.lock
+  - rm -fr $HOME/.gradle/caches/*/plugin-resolution/
+
+cache:
+  directories:
+    - $HOME/.gradle/caches/
+    - $HOME/.gradle/wrapper/
