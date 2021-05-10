@@ -1,33 +1,31 @@
 package ru.mail.polis.lsm.ponomarev_stepan;
 
+import java.util.Collection;
+import java.util.Iterator;
+import java.nio.ByteBuffer;
+import java.io.IOException;
+import java.util.SortedMap;
+
 import ru.mail.polis.lsm.DAO;
 import ru.mail.polis.lsm.Record;
 
 import javax.annotation.Nullable;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class MMMDAO implements DAO {
+public class InMemoryDAO implements DAO {
     private final SortedMap<ByteBuffer, Record> store = new ConcurrentSkipListMap<>();
 
     @Override
-    public Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
+    public synchronized Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
         if (fromKey == null && toKey == null || store.isEmpty()) {
             return store.values().iterator();
         }
 
-        return (fromKey == null ? store.headMap(toKey)
-                : toKey == null ? store.tailMap(fromKey)
-                : store.subMap(fromKey, toKey))
-                .values()
-                .iterator();
+        return selectData(fromKey, toKey).iterator();
     }
 
     @Override
-    public void upsert(Record record) {
+    public synchronized void upsert(Record record) {
         var key = record.getKey();
         var value = record.getValue();
 
@@ -39,7 +37,17 @@ public class MMMDAO implements DAO {
     }
 
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
         store.clear();
+    }
+
+    private Collection<Record> selectData(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
+        final boolean selectFromHead = fromKey == null;
+        final boolean selectTillEnd = toKey == null;
+
+        return (selectFromHead ? store.headMap(toKey)
+                : selectTillEnd ? store.tailMap(fromKey)
+                : store.subMap(fromKey, toKey))
+                .values();
     }
 }
