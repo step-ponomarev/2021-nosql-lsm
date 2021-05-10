@@ -16,7 +16,7 @@ public class InMemoryDAO implements DAO {
     private final SortedMap<ByteBuffer, Record> store = new ConcurrentSkipListMap<>();
 
     @Override
-    public synchronized Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
+    public Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
         if (fromKey == null && toKey == null || store.isEmpty()) {
             return store.values().iterator();
         }
@@ -25,7 +25,7 @@ public class InMemoryDAO implements DAO {
     }
 
     @Override
-    public synchronized void upsert(Record record) {
+    public void upsert(Record record) {
         var key = record.getKey();
         var value = record.getValue();
 
@@ -37,7 +37,7 @@ public class InMemoryDAO implements DAO {
     }
 
     @Override
-    public synchronized void close() throws IOException {
+    public void close() throws IOException {
         store.clear();
     }
 
