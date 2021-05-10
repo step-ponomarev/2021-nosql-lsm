@@ -4,7 +4,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import ru.mail.polis.lsm.ponomarev_stepan.InMemoryDAO;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -36,7 +35,7 @@ class ConcurrentTest {
 
     @BeforeEach
     void start(@TempDir Path dir) throws IOException {
-        dao = new InMemoryDAO();
+        dao = TestDaoWrapper.create(new DAOConfig(dir));
         executor = Executors.newFixedThreadPool(THREAD_COUNT);
     }
 
