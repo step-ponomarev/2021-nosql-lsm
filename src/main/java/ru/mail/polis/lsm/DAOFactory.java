@@ -1,6 +1,6 @@
 package ru.mail.polis.lsm;
 
-import ru.mail.polis.lsm.ponomarev_stepan.InMemoryDAO;
+import ru.mail.polis.lsm.ponomarev_stepan.CheatDAO;
 
 import java.io.IOException;
 
@@ -14,6 +14,6 @@ public final class DAOFactory {
      * Create an instance of {@link DAO} with supplied {@link DAOConfig}.
      */
     public static DAO create(DAOConfig config) throws IOException {
-        return new InMemoryDAO();
+        return new CheatDAO(config);
     }
 }
