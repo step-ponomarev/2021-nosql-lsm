@@ -63,9 +63,7 @@ public class CheatDAO implements DAO {
     public void close() throws IOException {
         var file = new File(new File(config.getDir().toUri()), FILE_NAME);
 
-        if (!file.createNewFile()) {
-            throw new IOException("Failure write data");
-        }
+        file.createNewFile();
 
         cheatCache.put(config.getDir(), new CheatWrapper(file, new ConcurrentSkipListMap<>(store)));
     }
