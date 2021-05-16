@@ -53,7 +53,7 @@ public class SimpleMemoryFileDAO implements DAO {
 
     @Override
     public void close() throws IOException {
-        write();
+        writeByteBuffer();
         this.store.clear();
     }
 
@@ -74,11 +74,8 @@ public class SimpleMemoryFileDAO implements DAO {
         NavigableMap<ByteBuffer, Record> tmpStore = new ConcurrentSkipListMap<>();
         try (BufferedInputStream is = new BufferedInputStream(new FileInputStream(file))) {
             while (is.available() != 0) {
-                int keySize = is.read();
-                ByteBuffer key = ByteBuffer.wrap(is.readNBytes(keySize));
-
-                int valueSize = is.read();
-                ByteBuffer value = ByteBuffer.wrap(is.readNBytes(valueSize));
+                ByteBuffer key = readByteBuffer(is);
+                ByteBuffer value = readByteBuffer(is);
 
                 tmpStore.put(key, Record.of(key, value));
             }
@@ -89,20 +86,25 @@ public class SimpleMemoryFileDAO implements DAO {
         return tmpStore;
     }
 
-    private void write() throws IOException {
+    private ByteBuffer readByteBuffer(BufferedInputStream is) throws IOException {
+        int length = is.read();
+        return ByteBuffer.wrap(is.readNBytes(length));
+    }
+
+    private void writeByteBuffer() throws IOException {
         try (BufferedOutputStream os = new BufferedOutputStream(new FileOutputStream(file, false))) {
             if (!file.exists()) {
                 file.createNewFile();
             }
 
             for (var entry : store.entrySet()) {
-                write(os, entry.getKey());
-                write(os, entry.getValue().getValue());
+                writeByteBuffer(os, entry.getKey());
+                writeByteBuffer(os, entry.getValue().getValue());
             }
         }
     }
 
-    private void write(BufferedOutputStream os, ByteBuffer buffer) throws IOException {
+    private void writeByteBuffer(BufferedOutputStream os, ByteBuffer buffer) throws IOException {
         var byteArray = toByteArray(buffer);
         os.write(byteArray.length);
         os.write(byteArray);
