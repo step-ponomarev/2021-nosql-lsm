@@ -5,19 +5,18 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.util.Iterator;
-import java.nio.ByteBuffer;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.SortedMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import javax.annotation.Nullable;
 
 import ru.mail.polis.lsm.DAO;
 import ru.mail.polis.lsm.DAOConfig;
 import ru.mail.polis.lsm.Record;
-
-import javax.annotation.Nullable;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 public class SimpleMemoryFileDAO implements DAO {
     private static final String FILE_NAME = "NAME";
@@ -57,7 +56,10 @@ public class SimpleMemoryFileDAO implements DAO {
         this.store.clear();
     }
 
-    private Map<ByteBuffer, Record> selectData(SortedMap<ByteBuffer, Record> store, @Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
+    private Map<ByteBuffer, Record> selectData(SortedMap<ByteBuffer, Record> store,
+                                               @Nullable ByteBuffer fromKey,
+                                               @Nullable ByteBuffer toKey
+    ) {
         final boolean selectFromHead = fromKey == null;
         final boolean selectTillEnd = toKey == null;
 
