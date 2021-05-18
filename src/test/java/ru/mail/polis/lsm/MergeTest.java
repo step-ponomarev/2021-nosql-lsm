@@ -59,7 +59,6 @@ class MergeTest {
             }
 
             List<Iterator<Record>> iterators = dao.stream().map(d -> d.range(null, null)).collect(Collectors.toList());
-            Collections.reverse(iterators);
             Iterator<Record> iterator = DAO.merge(iterators);
             for (Map.Entry<String, Integer> entry : expected.entrySet()) {
                 if (!iterator.hasNext()) {
