@@ -3,8 +3,8 @@ package ru.mail.polis.lsm;
 import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 /**
  * Minimal database API.
@@ -35,7 +35,22 @@ public interface DAO extends Closeable {
     }
 
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
-        throw new UnsupportedOperationException("Implement me");
+        if (iterators.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+
+        SortedSet<Record> sortedRecords = new ConcurrentSkipListSet<>(Comparator.comparing(Record::getKey));
+        for (var k : iterators) {
+            while (k.hasNext()) {
+                sortedRecords.add(k.next());
+            }
+        }
+
+        return sortedRecords.iterator();
+    }
+
+    static Iterator<Record> merge(List<Iterator<Record>> iterators1, List<Iterator<Record>> iterators2) {
+        return Collections.emptyIterator();
     }
 
 }

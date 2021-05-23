@@ -53,17 +53,6 @@ public class SimpleMemoryFileDAO implements DAO {
         }
     }
 
-    private int getRecordSize(Record record) {
-        if (record == null) {
-            return 0;
-        }
-        
-        var key = record.getKey();
-        var value = record.getValue();
-
-        return (key == null ? 0_0 : key.remaining() + 8) + (value == null ? 0_0 : value.remaining() + 8);
-    }
-
     @Override
     public void close() throws IOException {
         var path = config.getDir().resolve(FILE_NAME);
