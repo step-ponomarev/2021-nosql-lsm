@@ -1,16 +1,14 @@
 package ru.mail.polis.lsm.ponomarev_stepan;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.SortedMap;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import javax.annotation.Nullable;
 
@@ -19,14 +17,19 @@ import ru.mail.polis.lsm.DAOConfig;
 import ru.mail.polis.lsm.Record;
 
 public class SimpleMemoryFileDAO implements DAO {
-    private static final String FILE_NAME = "NAME";
+    private static final String FILE_NAME = "file.file";
+    private static final Set<? extends OpenOption> READ_OPEN_OPTIONS
+            = EnumSet.of(StandardOpenOption.READ);
+    private static final Set<? extends OpenOption> WRITE_OPEN_OPTIONS
+            = EnumSet.of(StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+
 
     private final NavigableMap<ByteBuffer, Record> store;
-    private final File file;
+    private final DAOConfig config;
 
-    public SimpleMemoryFileDAO(DAOConfig config) {
-        this.file = new File(new File(config.getDir().toUri()), FILE_NAME);
-        this.store = read(file);
+    public SimpleMemoryFileDAO(DAOConfig config) throws IOException {
+        this.config = config;
+        this.store = read(config.getDir().resolve(FILE_NAME));
     }
 
     @Override
@@ -50,9 +53,23 @@ public class SimpleMemoryFileDAO implements DAO {
         }
     }
 
+    private int getRecordSize(Record record) {
+        if (record == null) {
+            return 0;
+        }
+        
+        var key = record.getKey();
+        var value = record.getValue();
+
+        return (key == null ? 0_0 : key.remaining() + 8) + (value == null ? 0_0 : value.remaining() + 8);
+    }
+
     @Override
     public void close() throws IOException {
-        writeByteBuffer();
+        var path = config.getDir().resolve(FILE_NAME);
+        Files.deleteIfExists(path);
+        writeByteBuffer(path);
+
         this.store.clear();
     }
 
@@ -60,63 +77,67 @@ public class SimpleMemoryFileDAO implements DAO {
                                                @Nullable ByteBuffer fromKey,
                                                @Nullable ByteBuffer toKey
     ) {
-        final boolean selectFromHead = fromKey == null;
-        final boolean selectTillEnd = toKey == null;
+        final var selectFromHead = fromKey == null;
+        final var selectTillEnd = toKey == null;
 
         return selectFromHead ? store.headMap(toKey)
                 : selectTillEnd ? store.tailMap(fromKey)
                 : store.subMap(fromKey, toKey);
     }
 
-    private NavigableMap<ByteBuffer, Record> read(File file) {
-        if (!file.exists()) {
+    private NavigableMap<ByteBuffer, Record> read(Path path) throws IOException {
+        if (Files.notExists(path)) {
             return new ConcurrentSkipListMap<>();
         }
 
         NavigableMap<ByteBuffer, Record> tmpStore = new ConcurrentSkipListMap<>();
-        try (BufferedInputStream is = new BufferedInputStream(new FileInputStream(file))) {
-            while (is.available() != 0) {
-                ByteBuffer key = readByteBuffer(is);
-                ByteBuffer value = readByteBuffer(is);
+        try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
+            var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0_0, fc.size());
+
+            while (mappedBuffer.hasRemaining()) {
+                var key = readByteBuffer(mappedBuffer);
+                var value = readByteBuffer(mappedBuffer);
 
                 tmpStore.put(key, Record.of(key, value));
             }
         } catch (IOException e) {
-            return new ConcurrentSkipListMap<>();
+            throw new IOException("Epic fail", e.getCause());
         }
 
         return tmpStore;
     }
 
-    private ByteBuffer readByteBuffer(BufferedInputStream is) throws IOException {
-        int length = is.read();
-        return ByteBuffer.wrap(is.readNBytes(length));
+    private ByteBuffer readByteBuffer(MappedByteBuffer mappedBuffer) {
+        var size = mappedBuffer.getInt();
+        var buffer = mappedBuffer.slice().limit(size).asReadOnlyBuffer();
+        mappedBuffer.position(mappedBuffer.position() + size);
+        
+        return buffer;
     }
 
-    private void writeByteBuffer() throws IOException {
-        try (BufferedOutputStream os = new BufferedOutputStream(new FileOutputStream(file, false))) {
-            if (!file.exists()) {
-                file.createNewFile();
-            }
-
+    
+    private static final ByteBuffer integerByteBuffer = ByteBuffer.allocate(Integer.BYTES);
+    
+    private void writeByteBuffer(Path path) throws IOException {
+        try (var os = FileChannel.open(path, WRITE_OPEN_OPTIONS)) {
             for (var entry : store.entrySet()) {
-                writeByteBuffer(os, entry.getKey());
-                writeByteBuffer(os, entry.getValue().getValue());
+                var record = entry.getValue();
+
+                writeByteBuffer(os, record.getKey());
+                writeByteBuffer(os, record.getValue());
             }
+        } catch (IOException e) {
+            throw new IOException("Epic fail", e.getCause());
         }
     }
 
-    private void writeByteBuffer(BufferedOutputStream os, ByteBuffer buffer) throws IOException {
-        var byteArray = toByteArray(buffer);
-        os.write(byteArray.length);
-        os.write(byteArray);
+    private void writeByteBuffer(FileChannel os, ByteBuffer buffer) throws IOException {
+        os.write(getBufferSize(buffer));
+        os.write(buffer);
+        integerByteBuffer.clear();
     }
-
-    private byte[] toByteArray(ByteBuffer buffer) {
-        int length = buffer.remaining();
-        byte[] bytes = new byte[length];
-        buffer.get(bytes);
-
-        return bytes;
+    
+    private ByteBuffer getBufferSize(ByteBuffer buffer) {
+           return ByteBuffer.wrap(integerByteBuffer.putInt(buffer.remaining()).array());
     }
 }
