@@ -103,9 +103,7 @@ public class SimpleMemoryFileDAO implements DAO {
         
         return buffer;
     }
-
     
-    private static final ByteBuffer integerByteBuffer = ByteBuffer.allocate(Integer.BYTES);
     
     private void writeByteBuffer(Path path) throws IOException {
         try (var os = FileChannel.open(path, WRITE_OPEN_OPTIONS)) {
@@ -123,10 +121,9 @@ public class SimpleMemoryFileDAO implements DAO {
     private void writeByteBuffer(FileChannel os, ByteBuffer buffer) throws IOException {
         os.write(getBufferSize(buffer));
         os.write(buffer);
-        integerByteBuffer.clear();
     }
     
     private ByteBuffer getBufferSize(ByteBuffer buffer) {
-           return ByteBuffer.wrap(integerByteBuffer.putInt(buffer.remaining()).array());
+           return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(buffer.remaining()).array());
     }
 }
