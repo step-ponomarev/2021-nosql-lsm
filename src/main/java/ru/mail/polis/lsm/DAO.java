@@ -1,10 +1,11 @@
 package ru.mail.polis.lsm;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 /**
  * Minimal database API.
@@ -38,19 +39,39 @@ public interface DAO extends Closeable {
         if (iterators.isEmpty()) {
             return Collections.emptyIterator();
         }
-
-        SortedSet<Record> sortedRecords = new ConcurrentSkipListSet<>(Comparator.comparing(Record::getKey));
-        for (var k : iterators) {
-            while (k.hasNext()) {
-                sortedRecords.add(k.next());
-            }
-        }
-
-        return sortedRecords.iterator();
+        
+        return new MergeIterator(iterators);
     }
 
-    static Iterator<Record> merge(List<Iterator<Record>> iterators1, List<Iterator<Record>> iterators2) {
-        return Collections.emptyIterator();
+    class MergeIterator implements Iterator<Record> {
+        private final List<Iterator<Record>> iterators;
+        private Iterator<Record> currentIter;
+        private int index = 0;
+
+        private MergeIterator(@Nonnull List<Iterator<Record>> iteratorList) {
+            this.iterators = new LinkedList<>(iteratorList);
+            this.currentIter = iteratorList.get(index);
+        }
+
+        @Override
+        public boolean hasNext() {
+            while (iterators.size() > index && !this.iterators.get(index).hasNext()) {
+                index++;
+            }
+
+            this.currentIter = this.iterators.get(index);
+
+            return this.currentIter.hasNext();
+        }
+
+        @Override
+        public Record next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException("No more elements");
+            }
+
+            return currentIter.next();
+        }
     }
 
 }
