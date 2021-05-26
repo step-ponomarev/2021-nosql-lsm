@@ -3,7 +3,12 @@ package ru.mail.polis.lsm;
 import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
-import java.util.*;
+
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -36,7 +41,7 @@ public interface DAO extends Closeable {
         return result;
     }
 
-    static Iterator<Record> merge(List<Iterator<Record>> iterators) {        
+    static Iterator<Record> merge(List<Iterator<Record>> iterators) {
         return iterators.stream()
                 .filter(Iterator::hasNext)
                 .flatMap(DAO::toStream)
@@ -48,7 +53,7 @@ public interface DAO extends Closeable {
     }
 
     private static Stream<Record> toStream(Iterator<Record> iterator) {
-        var set = new HashSet<Record>();
+        Set<Record> set = new HashSet<>();
 
         while (iterator.hasNext()) {
             set.add(iterator.next());
