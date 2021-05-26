@@ -89,8 +89,6 @@ public class SimpleMemoryFileDAO implements DAO {
 
                 tmpStore.put(key, Record.of(key, value));
             }
-        } catch (IOException e) {
-            throw new IOException("Epic fail", e.getCause());
         }
 
         return tmpStore;
@@ -112,8 +110,6 @@ public class SimpleMemoryFileDAO implements DAO {
                 writeByteBuffer(os, record.getKey());
                 writeByteBuffer(os, record.getValue());
             }
-        } catch (IOException e) {
-            throw new IOException("Epic fail", e.getCause());
         }
     }
 
