@@ -4,14 +4,11 @@ import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.*;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * Minimal database API.
@@ -53,12 +50,6 @@ public interface DAO extends Closeable {
     }
 
     private static Stream<Record> toStream(Iterator<Record> iterator) {
-        Set<Record> set = new HashSet<>();
-
-        while (iterator.hasNext()) {
-            set.add(iterator.next());
-        }
-
-        return set.stream();
+        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterator, 0), false);
     }
 }
