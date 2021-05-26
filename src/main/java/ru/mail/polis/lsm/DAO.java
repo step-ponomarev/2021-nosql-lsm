@@ -5,7 +5,9 @@ import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Minimal database API.
@@ -35,12 +37,24 @@ public interface DAO extends Closeable {
         return result;
     }
 
-    static Iterator<Record> merge(List<Iterator<Record>> iterators) {
-        if (iterators.isEmpty()) {
-            return Collections.emptyIterator();
+    static Iterator<Record> merge(List<Iterator<Record>> iterators) {        
+        return iterators.stream()
+                .flatMap(DAO::toStream)
+                .collect(Collectors.toMap(Record::getKey, UnaryOperator.identity(), (v1, v2) -> v2))
+                .values()
+                .stream()
+                .sorted(Comparator.comparing(Record::getKey))
+                .iterator();
+    }
+
+    private static Stream<Record> toStream(Iterator<Record> iterator) {
+        var set = new HashSet<Record>();
+
+        while (iterator.hasNext()) {
+            set.add(iterator.next());
         }
-        
-        return new MergeIterator(iterators);
+
+        return set.stream();
     }
 
     class MergeIterator implements Iterator<Record> {
