@@ -57,36 +57,4 @@ public interface DAO extends Closeable {
 
         return set.stream();
     }
-
-    class MergeIterator implements Iterator<Record> {
-        private final List<Iterator<Record>> iterators;
-        private Iterator<Record> currentIter;
-        private int index = 0;
-
-        private MergeIterator(@Nonnull List<Iterator<Record>> iteratorList) {
-            this.iterators = new LinkedList<>(iteratorList);
-            this.currentIter = iteratorList.get(index);
-        }
-
-        @Override
-        public boolean hasNext() {
-            while (iterators.size() > index && !this.iterators.get(index).hasNext()) {
-                index++;
-            }
-
-            this.currentIter = this.iterators.get(index);
-
-            return this.currentIter.hasNext();
-        }
-
-        @Override
-        public Record next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException("No more elements");
-            }
-
-            return currentIter.next();
-        }
-    }
-
 }
