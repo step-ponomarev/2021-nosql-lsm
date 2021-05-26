@@ -39,6 +39,7 @@ public interface DAO extends Closeable {
 
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {        
         return iterators.stream()
+                .filter(Iterator::hasNext)
                 .flatMap(DAO::toStream)
                 .collect(Collectors.toMap(Record::getKey, UnaryOperator.identity(), (v1, v2) -> v2))
                 .values()
