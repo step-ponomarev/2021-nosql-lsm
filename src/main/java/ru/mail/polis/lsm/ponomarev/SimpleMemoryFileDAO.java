@@ -69,12 +69,11 @@ public class SimpleMemoryFileDAO implements DAO {
                                                @Nullable ByteBuffer fromKey,
                                                @Nullable ByteBuffer toKey) {
         final var selectFromHead = fromKey == null;
-        final var selectTillEnd = toKey == null;
-
         if (selectFromHead) {
             return store.headMap(toKey);
         }
 
+        final var selectTillEnd = toKey == null;
         if (selectTillEnd) {
             return store.tailMap(fromKey);
         }
