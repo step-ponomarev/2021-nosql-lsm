@@ -1,6 +1,6 @@
 package ru.mail.polis.lsm;
 
-import ru.mail.polis.lsm.ponomarev_stepan.SimpleMemoryFileDAO;
+import ru.mail.polis.lsm.ponomarev.SimpleMemoryFileDAO;
 
 import java.io.IOException;
 

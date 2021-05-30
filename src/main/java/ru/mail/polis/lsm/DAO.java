@@ -36,6 +36,13 @@ public interface DAO extends Closeable {
         return result;
     }
 
+    /**
+     * Метод сливает итераторы в один, сохраняя порядок, 
+     * если данные повторяются - берет последнюю версию данных.
+     * 
+     * @param iterators список итераторов для слияния
+     * @return Последовательность итераторов
+     */    
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
         return iterators.stream()
                 .filter(Iterator::hasNext)

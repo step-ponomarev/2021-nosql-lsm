@@ -1,4 +1,4 @@
-package ru.mail.polis.lsm.ponomarev_stepan;
+package ru.mail.polis.lsm.ponomarev;
 
 import ru.mail.polis.lsm.DAO;
 import ru.mail.polis.lsm.DAOConfig;
@@ -23,12 +23,10 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class SimpleMemoryFileDAO implements DAO {
     private static final String FILE_NAME = "file.file";
-    private static final Set<? extends OpenOption> READ_OPEN_OPTIONS
-            = EnumSet.of(StandardOpenOption.READ);
+    private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
     private static final Set<? extends OpenOption> WRITE_OPEN_OPTIONS
             = EnumSet.of(StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-
-
+    
     private final NavigableMap<ByteBuffer, Record> store;
     private final DAOConfig config;
 
@@ -69,14 +67,19 @@ public class SimpleMemoryFileDAO implements DAO {
 
     private Map<ByteBuffer, Record> selectData(SortedMap<ByteBuffer, Record> store,
                                                @Nullable ByteBuffer fromKey,
-                                               @Nullable ByteBuffer toKey
-    ) {
+                                               @Nullable ByteBuffer toKey) {
         final var selectFromHead = fromKey == null;
         final var selectTillEnd = toKey == null;
 
-        return selectFromHead ? store.headMap(toKey)
-                : selectTillEnd ? store.tailMap(fromKey)
-                : store.subMap(fromKey, toKey);
+        if (selectFromHead) {
+            return store.headMap(toKey);
+        }
+
+        if (selectTillEnd) {
+            return store.tailMap(fromKey);
+        }
+
+        return store.subMap(fromKey, toKey);
     }
 
     private NavigableMap<ByteBuffer, Record> read(Path path) throws IOException {
