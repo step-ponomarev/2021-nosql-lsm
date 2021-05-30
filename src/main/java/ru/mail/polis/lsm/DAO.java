@@ -41,7 +41,7 @@ public interface DAO extends Closeable {
      * если данные повторяются - берет последнюю версию данных.
      * 
      * @param iterators список итераторов для слияния
-     * @return Последовательность итераторов
+     * @return последовательность итераторов
      */    
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
         return iterators.stream()
