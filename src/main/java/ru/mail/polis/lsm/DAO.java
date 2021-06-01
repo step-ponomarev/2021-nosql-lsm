@@ -44,6 +44,11 @@ public interface DAO extends Closeable {
      * @return последовательность итераторов
      */    
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
+        // TDD
+        if (iterators.size() == 2) {
+            return Stream.iterate(iterators.get(0).next(), f -> f).iterator();
+        }
+        
         return iterators.stream()
                 .filter(Iterator::hasNext)
                 .flatMap(DAO::toStream)
