@@ -113,13 +113,11 @@ public interface DAO extends Closeable {
         }
 
         private int compare(@Nullable Record r1, @Nullable Record r2) {
-            boolean firstNull = r1 == null;
-            if (firstNull) {
+            if (r1 == null) {
                 return 1;
             }
-
-            boolean secondNull = r2 == null;
-            if (secondNull) {
+            
+            if (r2 == null) {
                 return -1;
             }
 
