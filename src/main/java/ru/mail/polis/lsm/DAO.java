@@ -4,7 +4,9 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 
 /**
  * Minimal database API.
@@ -31,87 +33,79 @@ public interface DAO extends Closeable {
     }
 
     /**
-     * <p>
-     * Метод сливает итераторы в один, упорядочивая по возрастанию,
-     * если данные повторяются - берет последнюю версию данных.
-     * </p>
+     * Merges iterators.
      *
-     * <p>
-     * Будет обработано не более <tt>1_000_000</tt>
-     * элементов каждого итератора.
-     * </p>
-     *
-     * @param iterators список итераторов для слияния
-     * @return последовательность итераторов
+     * @param iterators List
+     * @return Iterator
      */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
-        return MergeIterator.instanceOf(iterators);
+        return MergedRecordsIterator.instanceOf(iterators);
     }
 
-    class MergeIterator implements Iterator<Record> {
-        public static Iterator<Record> instanceOf(final List<Iterator<Record>> iterators) {
+    class MergedRecordsIterator implements Iterator<Record> {
+        private final Iterator<Record> firstIter;
+        private final Iterator<Record> secondIter;
+        private Record firstRecord;
+        private Record secondRecord;
+
+        public static Iterator<Record> instanceOf(List<Iterator<Record>> iterators) {
             if (iterators.isEmpty()) {
                 return Collections.emptyIterator();
             }
-            
-            if (iterators.size() == 1) {
+
+            var size = iterators.size();
+            if (size == 1) {
                 return iterators.get(0);
             }
-            
-            Iterator<Record> left = instanceOf(iterators.subList(0, iterators.size() / 2));
-            Iterator<Record> right = instanceOf(iterators.subList(iterators.size() / 2, iterators.size()));
-            
-            return merge(left, right);
+
+            return merge(
+                    instanceOf(iterators.subList(0, size / 2)),
+                    instanceOf(iterators.subList(size / 2, iterators.size()))
+            );
         }
-        
+
         private static Iterator<Record> merge(Iterator<Record> left, Iterator<Record> right) {
-            return new MergeIterator(left, right);
-        }
-        
-        private final Iterator<Record> firstIter;
-        private final Iterator<Record> secondIter;
-
-        private Record elem1;
-        private Record elem2;
-
-        private MergeIterator(Iterator<Record> firstIter, Iterator<Record> secondIter) {
-            this.firstIter = firstIter;
-            this.secondIter = secondIter;
-            
-            elem1 = getElement(firstIter);
-            elem2 = getElement(secondIter);
+            return new MergedRecordsIterator(left, right);
         }
 
-        @Override
-        public Record next() {
-//            if (!hasNext()) {
-//                throw new NullPointerException("No Such Element");
-//            }
+        public MergedRecordsIterator(final Iterator<Record> left, final Iterator<Record> right) {
+            firstIter = right;
+            secondIter = left;
 
-            var compareResult = compare(elem1, elem2);
-            var next = compareResult > 0
-                    ? elem2
-                    : elem1;
-
-            if (compareResult < 0) {
-                elem1 = getElement(firstIter);
-            }
-
-            if (compareResult > 0) {
-                elem2 = getElement(secondIter);
-            }
-
-            if (compareResult == 0) {
-                elem1 = getElement(firstIter);
-                elem2 = getElement(secondIter);
-            }
-
-            return next;
+            this.firstRecord = getElement(firstIter);
+            this.secondRecord = getElement(secondIter);
         }
 
         @Override
         public boolean hasNext() {
-            return elem1 != null || elem2 != null;
+            return firstRecord != null || secondRecord != null;
+        }
+
+        @Override
+        public Record next() {
+            if (!hasNext()) {
+                throw new NullPointerException("No Such Element");
+            }
+
+            final var compareResult = compare(firstRecord, secondRecord);
+            final var next = compareResult > 0
+                    ? secondRecord
+                    : firstRecord;
+
+            if (compareResult < 0) {
+                firstRecord = getElement(firstIter);
+            }
+
+            if (compareResult > 0) {
+                secondRecord = getElement(secondIter);
+            }
+
+            if (compareResult == 0) {
+                firstRecord = getElement(firstIter);
+                secondRecord = getElement(secondIter);
+            }
+
+            return next;
         }
 
         private int compare(@Nullable Record r1, @Nullable Record r2) {
