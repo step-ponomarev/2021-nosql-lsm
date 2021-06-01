@@ -38,8 +38,15 @@ public interface DAO extends Closeable {
     }
 
     /**
+     * <p>
      * Метод сливает итераторы в один, упорядочивая по возрастанию,
      * если данные повторяются - берет последнюю версию данных.
+     * </p>
+     *
+     * <p>
+     * Будет обработано не более <tt>1_000_000</tt>
+     * элементов каждого итератора.
+     * </p>
      *
      * @param iterators список итераторов для слияния
      * @return последовательность итераторов
@@ -57,7 +64,7 @@ public interface DAO extends Closeable {
 
     private static Stream<Record> toStream(Iterator<Record> iterator) {
         return StreamSupport
-                .stream(Spliterators.spliteratorUnknownSize(iterator, 0), false)
+                .stream(Spliterators.spliteratorUnknownSize(iterator, 0_0), false)
                 .limit(1_000_000);
     }
 
