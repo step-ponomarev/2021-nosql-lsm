@@ -49,7 +49,7 @@ public interface DAO extends Closeable {
      * </p>
      *
      * @param iterators список итераторов для слияния
-     * @return последовательность итераторов
+     * @return упорядоченная последовательность элементов
      */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
         return iterators.stream()
