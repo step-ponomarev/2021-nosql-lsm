@@ -53,7 +53,7 @@ public interface DAO extends Closeable {
                 .collect(Collectors.groupingBy(Record::getKey))
                 .values()
                 .stream()
-                .reduce(new ArrayList<>(), DAO::recordReducer).stream()
+                .reduce(new ArrayList<>(), DAO::reduceRecord).stream()
                 .sorted(Comparator.comparing(Record::getKey))
                 .iterator();
     }
@@ -64,7 +64,7 @@ public interface DAO extends Closeable {
                 .limit(ITERATOR_LIMIT);
     }
 
-    private static List<Record> recordReducer(final List<Record> acc, final List<Record> current) {
+    private static List<Record> reduceRecord(final List<Record> acc, final List<Record> current) {
         var lastValueRecordList = current.stream()
                 .filter(rec -> Objects.equals(rec, current.get(current.size() - 1)))
                 .collect(Collectors.toList());
