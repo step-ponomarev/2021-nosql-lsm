@@ -18,7 +18,7 @@ import java.util.stream.StreamSupport;
  */
 public interface DAO extends Closeable {
     
-    int STRICT_SYSTEM_LIMIT = 1000000;
+    final int STRICT_SYSTEM_LIMIT = 1000000;
     
     /**
      * Appends {@code Byte.MIN_VALUE} to {@code buffer}.
