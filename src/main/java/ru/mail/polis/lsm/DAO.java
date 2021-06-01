@@ -19,7 +19,7 @@ import java.util.stream.StreamSupport;
 public interface DAO extends Closeable {
 
     int ITERATOR_LIMIT = 1_000_000;
-    
+
     /**
      * Appends {@code Byte.MIN_VALUE} to {@code buffer}.
      *
