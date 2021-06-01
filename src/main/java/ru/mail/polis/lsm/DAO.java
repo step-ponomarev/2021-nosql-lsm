@@ -3,11 +3,7 @@ package ru.mail.polis.lsm;
 import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Spliterators;
-import java.util.function.UnaryOperator;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -36,27 +32,32 @@ public interface DAO extends Closeable {
         return result;
     }
 
+    static int ДЕРЖИМ_ВОТ_СТОЛЬКО_НАГРУЗКИ = 1000000;
     /**
      * Метод сливает итераторы в один, упорядочивая по возрастанию, 
      * если данные повторяются - берет последнюю версию данных.
      * 
      * @param iterators список итераторов для слияния
      * @return последовательность итераторов
-     */    
+     */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
-        // TDD
-        if (iterators.size() == 2) {
-            return Stream.iterate(iterators.get(0).next(), f -> f).iterator();
-        }
-        
         return iterators.stream()
-                .filter(Iterator::hasNext)
                 .flatMap(DAO::toStream)
-                .collect(Collectors.toMap(Record::getKey, UnaryOperator.identity(), (v1, v2) -> v2))
+                .limit(ДЕРЖИМ_ВОТ_СТОЛЬКО_НАГРУЗКИ)
+                .collect(Collectors.groupingBy(Record::getKey))
                 .values()
                 .stream()
-                .sorted(Comparator.comparing(Record::getKey))
-                .iterator();
+                .reduce(new ArrayList<>(), 
+                        ((l, r) -> {
+                            var rList = r.stream()
+                                    .filter(rec -> Objects.equals(rec, r.get(r.size() - 1)))
+                                    .collect(Collectors.toList());
+                            
+                            l.addAll(rList);
+                            
+                            return l;
+                        }))
+                .stream().sorted(Comparator.comparing(Record::getKey)).iterator();
     }
 
     private static Stream<Record> toStream(Iterator<Record> iterator) {
