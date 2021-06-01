@@ -65,7 +65,7 @@ public interface DAO extends Closeable {
 
             return merge(
                     instanceOf(iterators.subList(0, size / 2)),
-                    instanceOf(iterators.subList(size / 2, iterators.size()))
+                    instanceOf(iterators.subList(size / 2, size))
             );
         }
 
