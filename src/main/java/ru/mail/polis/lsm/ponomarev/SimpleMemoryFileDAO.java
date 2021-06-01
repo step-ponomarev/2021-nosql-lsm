@@ -26,7 +26,7 @@ public class SimpleMemoryFileDAO implements DAO {
     private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
     private static final Set<? extends OpenOption> WRITE_OPEN_OPTIONS
             = EnumSet.of(StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-    
+
     private final NavigableMap<ByteBuffer, Record> store;
     private final DAOConfig config;
 
@@ -68,13 +68,11 @@ public class SimpleMemoryFileDAO implements DAO {
     private Map<ByteBuffer, Record> selectData(SortedMap<ByteBuffer, Record> store,
                                                @Nullable ByteBuffer fromKey,
                                                @Nullable ByteBuffer toKey) {
-        final var selectFromHead = fromKey == null;
-        if (selectFromHead) {
+        if (fromKey == null) {
             return store.headMap(toKey);
         }
-
-        final var selectTillEnd = toKey == null;
-        if (selectTillEnd) {
+        
+        if (toKey == null) {
             return store.tailMap(fromKey);
         }
 
