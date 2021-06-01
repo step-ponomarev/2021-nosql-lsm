@@ -7,6 +7,7 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * Minimal database API.
@@ -38,9 +39,7 @@ public interface DAO extends Closeable {
      * если данные повторяются - берет последнюю версию данных.
      * </p>
      *
-     *
      * @param iterators список итераторов для слияния
-     * @throws NullPointerException при попытке получить отсутствующий элемент
      * @return последовательность итераторов
      */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
@@ -89,7 +88,7 @@ public interface DAO extends Closeable {
         @Override
         public Record next() {
             if (!hasNext()) {
-                throw new NullPointerException("No Such Element");
+                throw new NoSuchElementException("No Such Element");
             }
 
             final var compareResult = compare(firstRecord, secondRecord);
@@ -115,12 +114,11 @@ public interface DAO extends Closeable {
 
         private int compare(@Nullable Record r1, @Nullable Record r2) {
             boolean firstNull = r1 == null;
-            boolean secondNull = r2 == null;
-
             if (firstNull) {
                 return 1;
             }
 
+            boolean secondNull = r2 == null;
             if (secondNull) {
                 return -1;
             }
