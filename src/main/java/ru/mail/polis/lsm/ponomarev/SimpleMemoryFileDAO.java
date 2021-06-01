@@ -68,13 +68,11 @@ public class SimpleMemoryFileDAO implements DAO {
     private Map<ByteBuffer, Record> selectData(SortedMap<ByteBuffer, Record> store,
                                                @Nullable ByteBuffer fromKey,
                                                @Nullable ByteBuffer toKey) {
-        final var selectFromHead = fromKey == null;
-        if (selectFromHead) {
+        if (fromKey == null) {
             return store.headMap(toKey);
         }
-
-        final var selectTillEnd = toKey == null;
-        if (selectTillEnd) {
+        
+        if (toKey == null) {
             return store.tailMap(fromKey);
         }
 
