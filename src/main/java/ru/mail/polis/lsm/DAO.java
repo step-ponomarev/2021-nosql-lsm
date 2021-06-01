@@ -17,9 +17,6 @@ import java.util.stream.StreamSupport;
  * Minimal database API.
  */
 public interface DAO extends Closeable {
-
-    int ITERATOR_LIMIT = 1_000_000;
-
     /**
      * Appends {@code Byte.MIN_VALUE} to {@code buffer}.
      *
@@ -61,7 +58,7 @@ public interface DAO extends Closeable {
     private static Stream<Record> toStream(Iterator<Record> iterator) {
         return StreamSupport
                 .stream(Spliterators.spliteratorUnknownSize(iterator, 0), false)
-                .limit(ITERATOR_LIMIT);
+                .limit(1_000_000);
     }
 
     private static List<Record> reduceRecord(final List<Record> acc, final List<Record> current) {
