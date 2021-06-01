@@ -50,7 +50,6 @@ public interface DAO extends Closeable {
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
         return iterators.stream()
                 .flatMap(DAO::toStream)
-                .limit(STRICT_SYSTEM_LIMIT)
                 .collect(Collectors.groupingBy(Record::getKey))
                 .values()
                 .stream()
@@ -60,7 +59,9 @@ public interface DAO extends Closeable {
     }
 
     private static Stream<Record> toStream(Iterator<Record> iterator) {
-        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterator, 0), false);
+        return StreamSupport
+                .stream(Spliterators.spliteratorUnknownSize(iterator, 0), false)
+                .limit(STRICT_SYSTEM_LIMIT);
     }
 
     private static List<Record> recordReducer(final List<Record> acc, final List<Record> current) {
