@@ -1,17 +1,10 @@
 package ru.mail.polis.lsm;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.io.Closeable;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Objects;
-import java.util.Spliterators;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
+import java.util.*;
 
 /**
  * Minimal database API.
@@ -52,30 +45,93 @@ public interface DAO extends Closeable {
      * @return последовательность итераторов
      */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
-        return iterators.stream()
-                .flatMap(DAO::toStream)
-                .collect(Collectors.groupingBy(Record::getKey))
-                .values()
-                .stream()
-                .reduce(new ArrayList<>(), DAO::mergeUnique).stream()
-                .sorted(Comparator.comparing(Record::getKey))
-                .iterator();
+        return MergeIterator.instanceOf(iterators);
     }
 
-    private static Stream<Record> toStream(Iterator<Record> iterator) {
-        return StreamSupport
-                .stream(Spliterators.spliteratorUnknownSize(iterator, 0_0), false)
-                .limit(1_000_000);
-    }
+    class MergeIterator implements Iterator<Record> {
+        public static Iterator<Record> instanceOf(final List<Iterator<Record>> iterators) {
+            if (iterators.isEmpty()) {
+                return Collections.emptyIterator();
+            }
+            
+            if (iterators.size() == 1) {
+                return iterators.get(0);
+            }
+            
+            Iterator<Record> left = instanceOf(iterators.subList(0, iterators.size() / 2));
+            Iterator<Record> right = instanceOf(iterators.subList(iterators.size() / 2, iterators.size()));
+            
+            return merge(left, right);
+        }
+        
+        private static Iterator<Record> merge(Iterator<Record> left, Iterator<Record> right) {
+            return new MergeIterator(left, right);
+        }
+        
+        private final Iterator<Record> firstIter;
+        private final Iterator<Record> secondIter;
 
-    private static List<Record> mergeUnique(final List<Record> acc, final List<Record> current) {
-        var lastValueRecordList = current.stream()
-                .filter(rec -> Objects.equals(rec, current.get(current.size() - 1)))
-                .collect(Collectors.toList());
+        private Record elem1;
+        private Record elem2;
 
-        acc.addAll(lastValueRecordList);
+        private MergeIterator(Iterator<Record> firstIter, Iterator<Record> secondIter) {
+            this.firstIter = firstIter;
+            this.secondIter = secondIter;
+            
+            elem1 = getElement(firstIter);
+            elem2 = getElement(secondIter);
+        }
 
-        return acc;
+        @Override
+        public Record next() {
+//            if (!hasNext()) {
+//                throw new NullPointerException("No Such Element");
+//            }
+
+            var compareResult = compare(elem1, elem2);
+            var next = compareResult > 0
+                    ? elem2
+                    : elem1;
+
+            if (compareResult < 0) {
+                elem1 = getElement(firstIter);
+            }
+
+            if (compareResult > 0) {
+                elem2 = getElement(secondIter);
+            }
+
+            if (compareResult == 0) {
+                elem1 = getElement(firstIter);
+                elem2 = getElement(secondIter);
+            }
+
+            return next;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return elem1 != null || elem2 != null;
+        }
+
+        private int compare(@Nullable Record r1, @Nullable Record r2) {
+            boolean firstNull = r1 == null;
+            boolean secondNull = r2 == null;
+
+            if (firstNull) {
+                return 1;
+            }
+
+            if (secondNull) {
+                return -1;
+            }
+
+            return r1.getKey().compareTo(r2.getKey());
+        }
+
+        private Record getElement(@Nonnull final Iterator<Record> iter) {
+            return iter.hasNext() ? iter.next() : null;
+        }
     }
 
     Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey);
