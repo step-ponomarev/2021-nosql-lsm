@@ -43,10 +43,10 @@ public interface DAO extends Closeable {
      * @return упорядоченная последовательность элементов
      */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
-        return MergedRecordsIterator.instanceOf(iterators);
+        return MergedIterator.instanceOf(iterators);
     }
 
-    class MergedRecordsIterator implements Iterator<Record> {
+    class MergedIterator implements Iterator<Record> {
         private final Iterator<Record> firstIter;
         private final Iterator<Record> secondIter;
         
@@ -70,10 +70,10 @@ public interface DAO extends Closeable {
         }
 
         private static Iterator<Record> merge(Iterator<Record> left, Iterator<Record> right) {
-            return new MergedRecordsIterator(left, right);
+            return new MergedIterator(left, right);
         }
 
-        private MergedRecordsIterator(final Iterator<Record> left, final Iterator<Record> right) {
+        private MergedIterator(final Iterator<Record> left, final Iterator<Record> right) {
             firstIter = right;
             secondIter = left;
 
