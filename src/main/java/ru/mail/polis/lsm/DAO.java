@@ -17,6 +17,7 @@ import java.util.stream.StreamSupport;
  * Minimal database API.
  */
 public interface DAO extends Closeable {
+    
     int STRICT_SYSTEM_LIMIT = 1000000;
     
     /**
