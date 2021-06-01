@@ -12,6 +12,8 @@ import java.util.stream.StreamSupport;
  * Minimal database API.
  */
 public interface DAO extends Closeable {
+    int STRICT_SYSTEM_LIMIT = 1000000;
+    
     /**
      * Appends {@code Byte.MIN_VALUE} to {@code buffer}.
      *
@@ -31,8 +33,6 @@ public interface DAO extends Closeable {
 
         return result;
     }
-
-    int STRICT_SYSTEM_LIMIT = 1000000;
 
     /**
      * Метод сливает итераторы в один, упорядочивая по возрастанию,
