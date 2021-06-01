@@ -33,10 +33,15 @@ public interface DAO extends Closeable {
     }
 
     /**
-     * Merges iterators.
+     * <p>
+     * Метод сливает итераторы в один, упорядочивая по возрастанию,
+     * если данные повторяются - берет последнюю версию данных.
+     * </p>
      *
-     * @param iterators List
-     * @return Iterator
+     *
+     * @param iterators список итераторов для слияния
+     * @throws NullPointerException при попытке получить отсутствующий элемент
+     * @return последовательность итераторов
      */
     static Iterator<Record> merge(List<Iterator<Record>> iterators) {
         return MergedRecordsIterator.instanceOf(iterators);
