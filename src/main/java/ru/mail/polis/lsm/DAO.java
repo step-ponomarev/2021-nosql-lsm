@@ -72,7 +72,7 @@ public interface DAO extends Closeable {
             return new MergedRecordsIterator(left, right);
         }
 
-        public MergedRecordsIterator(final Iterator<Record> left, final Iterator<Record> right) {
+        private MergedRecordsIterator(final Iterator<Record> left, final Iterator<Record> right) {
             firstIter = right;
             secondIter = left;
 
