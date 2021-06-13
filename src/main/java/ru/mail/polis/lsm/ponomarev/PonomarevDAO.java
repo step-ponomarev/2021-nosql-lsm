@@ -20,7 +20,7 @@ import java.util.stream.StreamSupport;
 public class PonomarevDAO implements DAO {
     private static final Comparator<Index> indexComparator = Comparator.comparing(i -> i.order);
 
-//    private static final long MEMORY_LIMIT = 128 * 1024 * 1024 / 4;
+    private static final long MEMORY_LIMIT = 128 * 1024 * 1024 / 4;
 
     private static final String INDEXES_FILE_NAME = "index.info.dat";
 
@@ -31,6 +31,7 @@ public class PonomarevDAO implements DAO {
 
     private final DAOConfig config;
     private final Map<Integer, Index> indexes;
+//    private final NavigableMap<ByteBuffer, Record> store;
 
     private Index minIndex;
     private Index maxIndex;
@@ -308,6 +309,10 @@ public class PonomarevDAO implements DAO {
 
     private void flush(Index index, Iterator<Record> data, final Set<? extends OpenOption> options) throws IOException {
         var currentIndex = indexes.putIfAbsent(index.order, new Index(index.order, null, 0));
+        
+        if (!data.hasNext()) {
+            Files.deleteIfExists(getPath(getFileName(currentIndex.order)));
+        }
 
         while (data.hasNext()) {
             var path = getPath(getFileName(currentIndex.order));
