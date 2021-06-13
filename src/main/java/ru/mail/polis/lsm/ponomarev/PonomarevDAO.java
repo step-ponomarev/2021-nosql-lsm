@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.StreamSupport;
 
 public class PonomarevDAO implements DAO {
-    private static final int FILE_RECORD_LIMIT = 100_000;
+    private static final int FILE_RECORD_LIMIT = 16;
     private static final int MEMORY_LIMIT = Integer.MAX_VALUE;
     private static final String INDEXES_FILE_NAME = "index.info.dat";
 
@@ -41,7 +41,7 @@ public class PonomarevDAO implements DAO {
 
     private final DAOConfig config;
     private final Map<Integer, Index> indexes;
-    
+
     private final NavigableMap<ByteBuffer, Record> store;
     private final AtomicInteger storeSize;
 
@@ -50,8 +50,8 @@ public class PonomarevDAO implements DAO {
 
     private static class Index {
         public final int order;
-        public ByteBuffer startKey;
-        public int recordAmount;
+        public final ByteBuffer startKey;
+        public final int recordAmount;
 
         public Index(int order, ByteBuffer startKey, int recordAmount) {
             this.order = order;
@@ -62,7 +62,7 @@ public class PonomarevDAO implements DAO {
 
     public PonomarevDAO(DAOConfig config) throws IOException {
         this.config = config;
-        this.indexes = readIndexes(READ_OPEN_OPTIONS);
+        this.indexes = readIndexes();
         this.store = new ConcurrentSkipListMap<>();
         this.storeSize = new AtomicInteger(0);
     }
@@ -77,7 +77,7 @@ public class PonomarevDAO implements DAO {
             var index = fromKey == null ? minIndex : findIndex(fromKey);
             List<Iterator<Record>> data = (fromKey == null && toKey == null)
                     ? getAllData() :
-                    new ArrayList<>(getDataFromIndex(index));
+                    new ArrayList<>(readData(index));
 
             data.add(store.values().iterator());
 
@@ -94,7 +94,7 @@ public class PonomarevDAO implements DAO {
         for (var i : indexes.values()) {
             var path = getPath(getFileName(i.order));
             if (Files.exists(path)) {
-                var iterator = readRecords(path, READ_OPEN_OPTIONS);
+                var iterator = readRecords(path);
                 iterators.add(iterator);
             }
         }
@@ -115,7 +115,7 @@ public class PonomarevDAO implements DAO {
         if (record.getValue() == null) {
             return false;
         }
-        
+
         boolean valid = true;
 
         if (fromKey != null) {
@@ -159,7 +159,7 @@ public class PonomarevDAO implements DAO {
 
         if (minIndex == null || maxIndex == null) {
             index = new Index(0, key, 0);
-            
+
             maxIndex = index;
             minIndex = index;
         }
@@ -187,41 +187,6 @@ public class PonomarevDAO implements DAO {
         if (index != null) {
             indexes.put(index.order, index);
         }
-    }
-
-    private Index findIndex(ByteBuffer key) {
-        List<Index> indexList = new ArrayList<>(indexes.values());
-
-        while (indexList.size() > 1) {
-            var i = indexList.size() / 2;
-            var midIndex = indexList.get(i);
-
-            var compareResult = key.compareTo(midIndex.startKey);
-
-            if (compareResult == 0) {
-                return midIndex;
-            }
-
-            if (compareResult < 0) {
-                var prevIndex = indexList.get(i - 1);
-                if (key.compareTo(prevIndex.startKey) >= 0) {
-                    return prevIndex;
-                }
-
-                indexList = indexList.subList(0, i);
-            }
-
-            if (compareResult > 0) {
-                var nextIndex = indexList.size() > (i + 1) ? indexList.get(i + 1) : null;
-                if (nextIndex != null && key.compareTo(nextIndex.startKey) <= 0) {
-                    return midIndex;
-                }
-
-                indexList = indexList.subList(0, i);
-            }
-        }
-
-        return indexList.get(0);
     }
 
     @Override
@@ -260,15 +225,15 @@ public class PonomarevDAO implements DAO {
                 .orElseThrow();
     }
 
-    private Map<Integer, Index> readIndexes(final Set<? extends OpenOption> options) throws IOException {
+    private Map<Integer, Index> readIndexes() throws IOException {
         var path = getPath(INDEXES_FILE_NAME);
 
         if (Files.notExists(path)) {
             return new ConcurrentSkipListMap<>();
         }
 
-        final Map<Integer, Index> indexesTmp = new ConcurrentSkipListMap();
-        try (var fc = FileChannel.open(path, options)) {
+        final Map<Integer, Index> indexesTmp = new ConcurrentSkipListMap<>();
+        try (var fc = FileChannel.open(path, PonomarevDAO.READ_OPEN_OPTIONS)) {
             var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
             while (mappedBuffer.hasRemaining()) {
                 var order = mappedBuffer.getInt();
@@ -299,7 +264,7 @@ public class PonomarevDAO implements DAO {
     private void flush(Record record) throws IOException {
         var index = findIndex(record.getKey());
         var path = getPath(getFileName(index.order));
-        var data = Files.exists(path) ? readRecords(path, READ_OPEN_OPTIONS) : Collections.<Record>emptyIterator();
+        var data = Files.exists(path) ? readRecords(path) : Collections.<Record>emptyIterator();
 
         Map<ByteBuffer, Record> records = new TreeMap<>();
         boolean isDeleting = record.getValue() == null;
@@ -318,13 +283,38 @@ public class PonomarevDAO implements DAO {
         List<Iterator<Record>> recordsToMerge = new ArrayList<>(List.of(records.values().iterator()));
         Index nextIndex = indexes.get(index.order + 1);
         if (nextIndex != null) {
-            recordsToMerge.addAll(getDataFromIndex(nextIndex));
+            recordsToMerge.addAll(readData(nextIndex));
         }
 
         moveData(index, DAO.merge(recordsToMerge), WRITE_OPTIONS);
     }
 
-    private List<Iterator<Record>> getDataFromIndex(Index index) throws IOException {
+    private Index findIndex(ByteBuffer key) {
+        List<Index> indexList = new ArrayList<>(indexes.values());
+
+        while (indexList.size() > 1) {
+            var index = indexList.size() / 2;
+            var midIndex = indexList.get(index);
+
+            var compareResult = key.compareTo(midIndex.startKey);
+
+            if (compareResult == 0) {
+                return midIndex;
+            }
+
+            if (compareResult < 0) {
+                indexList = indexList.subList(0, index);
+            }
+
+            if (compareResult > 0) {
+                indexList = indexList.subList(index, indexList.size());
+            }
+        }
+
+        return indexList.get(0);
+    }
+
+    private List<Iterator<Record>> readData(Index index) throws IOException {
         List<Iterator<Record>> recordsToMerge = new ArrayList<>();
         Index nextIndex = indexes.get(index.order);
 
@@ -332,7 +322,7 @@ public class PonomarevDAO implements DAO {
             var path = getPath(getFileName(nextIndex.order));
 
             if (Files.exists(path)) {
-                recordsToMerge.add(readRecords(path, READ_OPEN_OPTIONS));
+                recordsToMerge.add(readRecords(path));
             }
 
             nextIndex = indexes.get(nextIndex.order + 1);
@@ -343,7 +333,7 @@ public class PonomarevDAO implements DAO {
 
     private void moveData(Index index, Iterator<Record> data, final Set<? extends OpenOption> options) throws IOException {
         var currentIndex = indexes.computeIfAbsent(index.order, c -> new Index(index.order, null, 0));
-        
+
         if (!data.hasNext()) {
             Files.deleteIfExists(getPath(getFileName(currentIndex.order)));
         }
@@ -353,6 +343,7 @@ public class PonomarevDAO implements DAO {
             Files.deleteIfExists(path);
 
             var inFile = 0;
+            Record firstRecord = null;
             try (var ch = FileChannel.open(path, options)) {
                 for (var i = 0; i < FILE_RECORD_LIMIT && data.hasNext(); i++) {
                     var record = data.next();
@@ -360,28 +351,30 @@ public class PonomarevDAO implements DAO {
                     flush(ch, record.getKey());
                     flush(ch, record.getValue());
 
-                    if (i == 0) {
-                        currentIndex.startKey = record.getKey();
+                    if (firstRecord == null) {
+                        firstRecord = record;
                     }
 
                     inFile++;
                 }
             }
 
-            currentIndex.recordAmount = inFile;
+            if (firstRecord != null) {
+                indexes.put(currentIndex.order, new Index(currentIndex.order, firstRecord.getKey(), inFile));
+            }
 
             if (!data.hasNext()) {
                 return;
             }
-            
-            var i =  currentIndex.order + 1;
+
+            var i = currentIndex.order + 1;
             currentIndex = indexes.computeIfAbsent(i, c -> new Index(i, null, 0));
         }
     }
 
-    private Iterator<Record> readRecords(Path path, final Set<? extends OpenOption> options) throws IOException {
+    private Iterator<Record> readRecords(Path path) throws IOException {
         NavigableMap<ByteBuffer, Record> tmpStore = new ConcurrentSkipListMap<>();
-        try (var fc = FileChannel.open(path, options)) {
+        try (var fc = FileChannel.open(path, PonomarevDAO.READ_OPEN_OPTIONS)) {
             var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
 
             while (mappedBuffer.hasRemaining()) {
