@@ -60,6 +60,10 @@ public class PonomarevDAO implements DAO {
         }
     }
 
+    /**
+     * @param config конфигурация дао
+     * @throws IOException
+     */
     public PonomarevDAO(DAOConfig config) throws IOException {
         this.config = config;
         this.indexes = readIndexes();
@@ -136,7 +140,7 @@ public class PonomarevDAO implements DAO {
 
         resolveMinMaxIndexes(key);
 
-        var newRecord = value != null ? Record.of(key, value) : Record.tombstone(key);
+        var newRecord = (value != null) ? Record.of(key, value) : Record.tombstone(key);
 
         store.put(newRecord.getKey(), newRecord);
         storeSize.getAndAdd(sizeOf(record));
@@ -164,7 +168,9 @@ public class PonomarevDAO implements DAO {
             minIndex = index;
         }
 
-        if (key.compareTo(minIndex.startKey) < 0) {
+        var compareResult = key.compareTo(minIndex.startKey);
+
+        if (compareResult < 0) {
             if (maxIndex.recordAmount == FILE_RECORD_LIMIT) {
                 index = new Index(minIndex.order - 1, key, 0);
             } else {
@@ -174,7 +180,7 @@ public class PonomarevDAO implements DAO {
             minIndex = index;
         }
 
-        if (key.compareTo(maxIndex.startKey) > 0) {
+        if (compareResult > 0) {
             if (maxIndex.recordAmount == FILE_RECORD_LIMIT) {
                 index = new Index(maxIndex.order + 1, key, 0);
             } else {
@@ -286,7 +292,7 @@ public class PonomarevDAO implements DAO {
             recordsToMerge.addAll(readData(nextIndex));
         }
 
-        moveData(index, DAO.merge(recordsToMerge), WRITE_OPTIONS);
+        moveData(index, DAO.merge(recordsToMerge));
     }
 
     private Index findIndex(ByteBuffer key) {
@@ -331,8 +337,9 @@ public class PonomarevDAO implements DAO {
         return recordsToMerge;
     }
 
-    private void moveData(Index index, Iterator<Record> data, final Set<? extends OpenOption> options) throws IOException {
-        var currentIndex = indexes.computeIfAbsent(index.order, c -> new Index(index.order, null, 0));
+    private void moveData(Index index, Iterator<Record> data) throws IOException {
+        var currentIndex
+                = indexes.computeIfAbsent(index.order, c -> new Index(index.order, null, 0));
 
         if (!data.hasNext()) {
             Files.deleteIfExists(getPath(getFileName(currentIndex.order)));
@@ -344,12 +351,12 @@ public class PonomarevDAO implements DAO {
 
             var inFile = 0;
             Record firstRecord = null;
-            try (var ch = FileChannel.open(path, options)) {
+            try (var ch = FileChannel.open(path, PonomarevDAO.WRITE_OPTIONS)) {
                 for (var i = 0; i < FILE_RECORD_LIMIT && data.hasNext(); i++) {
                     var record = data.next();
 
-                    flush(ch, record.getKey());
-                    flush(ch, record.getValue());
+                    writeRecord(ch, record.getKey());
+                    writeRecord(ch, record.getValue());
 
                     if (firstRecord == null) {
                         firstRecord = record;
@@ -396,17 +403,13 @@ public class PonomarevDAO implements DAO {
         return buffer;
     }
 
-    private void flush(FileChannel fc, ByteBuffer buffer) throws IOException {
+    private void writeRecord(FileChannel fc, ByteBuffer buffer) throws IOException {
         fc.write(getBufferSize(buffer));
         fc.write(buffer);
     }
 
     private ByteBuffer getBufferSize(ByteBuffer buffer) {
-        return ByteBuffer.wrap(toByteArray(buffer.remaining()));
-    }
-
-    private byte[] toByteArray(int n) {
-        return ByteBuffer.allocate(Integer.BYTES).putInt(n).array();
+        return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(buffer.remaining()).array());
     }
 
     private String getFileName(int index) {
