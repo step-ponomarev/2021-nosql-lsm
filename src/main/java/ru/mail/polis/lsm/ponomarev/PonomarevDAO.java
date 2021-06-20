@@ -42,7 +42,7 @@ public class PonomarevDAO implements DAO {
             }
 
             storeSize.getAndAdd(sizeOf(record));
-            
+
             if (storeSize.get() >= MEMORY_LIMIT) {
                 sstable.flush(store);
 
@@ -62,7 +62,7 @@ public class PonomarevDAO implements DAO {
         if (data.isEmpty()) {
             return Collections.emptyIterator();
         }
-        
+
         return filterData(data, fromKey, toKey);
     }
 

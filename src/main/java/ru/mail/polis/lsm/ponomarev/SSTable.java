@@ -244,7 +244,7 @@ class SSTable {
 
         return recordsToMerge;
     }
-    
+
     private Set<Index> getIndexesBetween(Index fromIndex, Index toIndex) {
         return this.indexes.values()
                 .stream()
