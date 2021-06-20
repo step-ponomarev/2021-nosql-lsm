@@ -140,9 +140,12 @@ public class PonomarevDAO implements DAO {
 
         resolveMinMaxIndexes(key);
 
-        var newRecord = (value != null) ? Record.of(key, value) : Record.tombstone(key);
+        if (value != null) {
+            store.put(key, Record.of(key, value));
+        } else {
+            store.put(key, Record.tombstone(key));
+        }
 
-        store.put(newRecord.getKey(), newRecord);
         storeSize.getAndAdd(sizeOf(record));
 
         if (storeSize.get() >= MEMORY_LIMIT) {
