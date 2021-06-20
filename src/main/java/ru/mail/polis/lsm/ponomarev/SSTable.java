@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.stream.Collectors;
 
 class SSTable {
     private static final int FILE_RECORD_LIMIT = 1024;
@@ -22,7 +23,7 @@ class SSTable {
     private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
     private static final Set<? extends OpenOption> WRITE_OPTIONS
             = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE_NEW);
-    private static final Comparator<Index> indexComparator = Comparator.comparing(i -> i.order);
+    private static final Comparator<Index> indexComparator = Comparator.comparing(i -> i.startKey);
 
     private final Path dir;
     private final Map<Integer, Index> indexes;
@@ -167,8 +168,8 @@ class SSTable {
     }
 
     private void resolveMaxMin() {
-        minIndex = this.indexes.values().stream().min(Comparator.comparingInt(l -> l.order)).orElse(null);
-        maxIndex = this.indexes.values().stream().max(Comparator.comparingInt(l -> l.order)).orElse(null);
+        minIndex = this.indexes.values().stream().min(Comparator.comparing(l -> l.startKey)).orElse(null);
+        maxIndex = this.indexes.values().stream().max(Comparator.comparing(l -> l.startKey)).orElse(null);
     }
 
     private void writeIndexes(final Set<? extends OpenOption> options) throws IOException {
@@ -232,23 +233,36 @@ class SSTable {
 
     private List<Iterator<Record>> readData(Index fromIndex, Index toIndex) throws IOException {
         List<Iterator<Record>> recordsToMerge = new ArrayList<>();
-        Index nextIndex = indexes.get(fromIndex.order);
+        var indexes = this.indexes.values()
+                .stream()
+                .filter(f -> filterBetween(f.startKey, fromIndex.startKey, toIndex.startKey))
+                .sorted(indexComparator)
+                .collect(Collectors.toList());
 
-        while (nextIndex != null && nextIndex.order <= toIndex.order) {
-            var path = getPath(getFileName(nextIndex.order));
+        for (var index : indexes) {
+            var path = getPath(getFileName(index.order));
 
             if (Files.exists(path)) {
                 recordsToMerge.add(readRecords(path));
             }
-
-            nextIndex = indexes.get(nextIndex.order + 1);
         }
 
         return recordsToMerge;
     }
 
+    private boolean filterBetween(ByteBuffer currentKey, ByteBuffer startKey, ByteBuffer endKey) {
+        if (currentKey.compareTo(startKey) < 0) {
+            return false;
+        }
+
+        return currentKey.compareTo(endKey) <= 0;
+    }
+
     private Index findIndex(ByteBuffer key) {
-        List<Index> indexList = new ArrayList<>(indexes.values());
+        List<Index> indexList = indexes.values()
+                .stream()
+                .sorted(indexComparator)
+                .collect(Collectors.toList());
 
         while (indexList.size() > 1) {
             var index = indexList.size() / 2;

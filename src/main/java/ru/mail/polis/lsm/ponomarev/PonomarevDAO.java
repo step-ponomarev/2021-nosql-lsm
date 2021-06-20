@@ -90,7 +90,7 @@ public class PonomarevDAO implements DAO {
         }
 
         if (toKey != null) {
-            valid &= record.getKey().compareTo(toKey) < 0;
+            valid &= record.getKey().compareTo(toKey) <= 0;
         }
 
         return valid;
