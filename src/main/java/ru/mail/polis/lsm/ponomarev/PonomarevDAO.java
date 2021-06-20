@@ -62,7 +62,7 @@ public class PonomarevDAO implements DAO {
 
     /**
      * @param config конфигурация дао
-     * @throws IOException
+     * @throws IOException выбрасывает в случае чего вдруг, такое возможно
      */
     public PonomarevDAO(DAOConfig config) throws IOException {
         this.config = config;
