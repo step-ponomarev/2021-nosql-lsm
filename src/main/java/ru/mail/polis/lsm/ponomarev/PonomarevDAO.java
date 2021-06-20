@@ -31,7 +31,7 @@ import java.util.stream.StreamSupport;
 
 public class PonomarevDAO implements DAO {
     private static final int FILE_RECORD_LIMIT = 16;
-    private static final int MEMORY_LIMIT = Integer.MAX_VALUE / 1024;
+    private static final int MEMORY_LIMIT = 131072;
     private static final String INDEXES_FILE_NAME = "index.info.dat";
 
     private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
@@ -127,7 +127,7 @@ public class PonomarevDAO implements DAO {
         }
 
         if (toKey != null) {
-            valid &= record.getKey().compareTo(toKey) <= 0;
+            valid &= record.getKey().compareTo(toKey) < 0;
         }
 
         return valid;
