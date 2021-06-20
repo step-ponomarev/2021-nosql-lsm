@@ -15,15 +15,15 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-class Refrigerator {
-    private static final int FILE_RECORD_LIMIT = 1;
+class SSTable {
+    private static final int FILE_RECORD_LIMIT = 1024;
     private static final String INDEXES_FILE_NAME = "index.info.dat";
 
     private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
     private static final Set<? extends OpenOption> WRITE_OPTIONS
             = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE_NEW);
     private static final Comparator<Index> indexComparator = Comparator.comparing(i -> i.order);
-    
+
     private final Path dir;
     private final Map<Integer, Index> indexes;
 
@@ -43,11 +43,10 @@ class Refrigerator {
     }
 
     /**
-     * 
      * @param dir текущая директория
      * @throws IOException
      */
-    public Refrigerator(Path dir) throws IOException {
+    public SSTable(Path dir) throws IOException {
         this.dir = dir;
         this.indexes = readIndexes();
     }
@@ -58,12 +57,14 @@ class Refrigerator {
                 return new ArrayList<>();
             }
 
-            var index = fromKey == null ? minIndex : findIndex(fromKey);
+            if (fromKey == null && toKey == null) {
+                return getAllData();
+            }
 
-            return (fromKey == null && toKey == null)
-                    ? getAllData() :
-                    new ArrayList<>(readData(index));
+            var fromIndex = fromKey == null ? minIndex : findIndex(fromKey);
+            var toIndex = toKey == null ? maxIndex : findIndex(toKey);
 
+            return readData(fromIndex, toIndex);
         } catch (IOException e) {
             throw new IllegalStateException("Something wrong", e);
         }
@@ -71,45 +72,26 @@ class Refrigerator {
 
     public void flush(NavigableMap<ByteBuffer, Record> store) throws IOException {
         for (var record : store.values()) {
-            resolveMinMaxIndexes(record.getKey());
-        }
-
-        for (var record : store.values()) {
+            resolveIndex(record.getKey());
             flush(record);
         }
 
         writeIndexes(WRITE_OPTIONS);
     }
 
-    private void resolveMinMaxIndexes(ByteBuffer key) {
+    public void resolveIndex(ByteBuffer key) {
         Index index = null;
 
         if (minIndex == null || maxIndex == null) {
             index = new Index(0, key, 0);
-
-            maxIndex = index;
-            minIndex = index;
         }
 
-        var compareResult = key.compareTo(minIndex.startKey);
-        if (compareResult < 0) {
-            if (maxIndex.recordAmount == FILE_RECORD_LIMIT) {
-                index = new Index(minIndex.order - 1, key, 0);
-            } else {
-                index = new Index(minIndex.order, key, minIndex.recordAmount);
-            }
-
-            minIndex = index;
+        if (minIndex != null && key.compareTo(minIndex.startKey) < 0 && minIndex.recordAmount == FILE_RECORD_LIMIT) {
+            index = new Index(minIndex.order - 1, key, 0);
         }
 
-        if (compareResult > 0) {
-            if (maxIndex.recordAmount == FILE_RECORD_LIMIT) {
-                index = new Index(maxIndex.order + 1, key, 0);
-            } else {
-                index = new Index(maxIndex.order, key, maxIndex.recordAmount);
-            }
-
-            maxIndex = index;
+        if (maxIndex != null && key.compareTo(maxIndex.startKey) > 0 && maxIndex.recordAmount == FILE_RECORD_LIMIT) {
+            index = new Index(maxIndex.order + 1, key, 0);
         }
 
         if (index != null) {
@@ -138,23 +120,23 @@ class Refrigerator {
 
         List<Iterator<Record>> recordsToMerge = new ArrayList<>(List.of(records.values().iterator()));
         Index nextIndex = indexes.get(index.order + 1);
-        if (nextIndex != null) {
-            recordsToMerge.addAll(readData(nextIndex));
+        if (nextIndex != null && maxIndex != null) {
+            recordsToMerge.addAll(readData(nextIndex, maxIndex));
         }
 
         moveData(index, DAO.merge(recordsToMerge));
     }
 
     private void moveData(Index index, Iterator<Record> data) throws IOException {
-        var currentIndex
-                = indexes.computeIfAbsent(index.order, c -> new Index(index.order, null, 0));
+        var currentOrder = index.order;
 
         if (!data.hasNext()) {
-            Files.deleteIfExists(getPath(getFileName(currentIndex.order)));
+            Files.deleteIfExists(getPath(getFileName(currentOrder)));
+            this.indexes.remove(index.order);
         }
 
         while (data.hasNext()) {
-            var path = getPath(getFileName(currentIndex.order));
+            var path = getPath(getFileName(currentOrder));
             Files.deleteIfExists(path);
 
             var inFile = 0;
@@ -175,16 +157,18 @@ class Refrigerator {
             }
 
             if (firstRecord != null) {
-                indexes.put(currentIndex.order, new Index(currentIndex.order, firstRecord.getKey(), inFile));
+                indexes.put(currentOrder, new Index(currentOrder, firstRecord.getKey(), inFile));
             }
 
-            if (!data.hasNext()) {
-                return;
-            }
-
-            var i = currentIndex.order + 1;
-            currentIndex = indexes.computeIfAbsent(i, c -> new Index(i, null, 0));
+            currentOrder++;
         }
+
+        resolveMaxMin();
+    }
+
+    private void resolveMaxMin() {
+        minIndex = this.indexes.values().stream().min(Comparator.comparingInt(l -> l.order)).orElse(null);
+        maxIndex = this.indexes.values().stream().max(Comparator.comparingInt(l -> l.order)).orElse(null);
     }
 
     private void writeIndexes(final Set<? extends OpenOption> options) throws IOException {
@@ -192,39 +176,65 @@ class Refrigerator {
         Files.deleteIfExists(path);
 
         try (var fc = FileChannel.open(path, options)) {
-            var mappedBuffer = fc.map(FileChannel.MapMode.READ_WRITE, 0, getIndexesSize());
-
             for (var index : indexes.values()) {
-                mappedBuffer.putInt(index.order);
-                mappedBuffer.putInt(index.startKey.remaining());
-                mappedBuffer.put(index.startKey);
-                mappedBuffer.putInt(index.recordAmount);
+                fc.write(toByteBuffer(index.order));
+                writeRecord(fc, index.startKey);
+                fc.write(toByteBuffer(index.recordAmount));
             }
         }
     }
 
-    private int getIndexesSize() {
-        return this.indexes.isEmpty() ? 0 : this.indexes.values()
-                .stream()
-                .map(i -> 4 * 2 + i.startKey.remaining() + 4)
-                .reduce(Integer::sum)
-                .orElseThrow();
+    private Map<Integer, Index> readIndexes() throws IOException {
+        var path = getPath(INDEXES_FILE_NAME);
+
+        if (Files.notExists(path)) {
+            return new ConcurrentSkipListMap<>();
+        }
+
+        final Map<Integer, Index> indexesTmp = new ConcurrentSkipListMap<>();
+        try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
+            var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+            while (mappedBuffer.hasRemaining()) {
+
+                var order = mappedBuffer.getInt();
+                var key = readByteBuffer(mappedBuffer);
+                var amount = mappedBuffer.getInt();
+
+                var index = new Index(order, key, amount);
+                indexesTmp.put(index.order, index);
+
+                if (minIndex == null && maxIndex == null) {
+                    minIndex = index;
+                    maxIndex = index;
+                }
+
+                if (indexComparator.compare(index, minIndex) < 0) {
+                    minIndex = index;
+                }
+
+                if (indexComparator.compare(index, maxIndex) > 0) {
+                    maxIndex = index;
+                }
+            }
+        }
+
+        return indexesTmp;
     }
 
     private void writeRecord(FileChannel fc, ByteBuffer buffer) throws IOException {
-        fc.write(getBufferSize(buffer));
+        fc.write(toByteBuffer(buffer.remaining()));
         fc.write(buffer);
     }
 
-    private ByteBuffer getBufferSize(ByteBuffer buffer) {
-        return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(buffer.remaining()).array());
+    private ByteBuffer toByteBuffer(int n) {
+        return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(n).array());
     }
 
-    private List<Iterator<Record>> readData(Index index) throws IOException {
+    private List<Iterator<Record>> readData(Index fromIndex, Index toIndex) throws IOException {
         List<Iterator<Record>> recordsToMerge = new ArrayList<>();
-        Index nextIndex = indexes.get(index.order);
+        Index nextIndex = indexes.get(fromIndex.order);
 
-        while (nextIndex != null) {
+        while (nextIndex != null && nextIndex.order <= toIndex.order) {
             var path = getPath(getFileName(nextIndex.order));
 
             if (Files.exists(path)) {
@@ -250,7 +260,7 @@ class Refrigerator {
                 return midIndex;
             }
 
-            if (compareResult < 0) {
+            if (compareResult <= 0) {
                 indexList = indexList.subList(0, index);
             }
 
@@ -274,42 +284,6 @@ class Refrigerator {
         }
 
         return iterators;
-    }
-
-    private Map<Integer, Index> readIndexes() throws IOException {
-        var path = getPath(INDEXES_FILE_NAME);
-
-        if (Files.notExists(path)) {
-            return new ConcurrentSkipListMap<>();
-        }
-
-        final Map<Integer, Index> indexesTmp = new ConcurrentSkipListMap<>();
-        try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
-            var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
-            while (mappedBuffer.hasRemaining()) {
-                var order = mappedBuffer.getInt();
-                var key = readByteBuffer(mappedBuffer);
-                var amount = mappedBuffer.getInt();
-
-                var index = new Index(order, key, amount);
-                indexesTmp.put(index.order, index);
-
-                if (minIndex == null && maxIndex == null) {
-                    minIndex = index;
-                    maxIndex = index;
-                }
-
-                if (indexComparator.compare(index, minIndex) < 0) {
-                    minIndex = index;
-                }
-
-                if (indexComparator.compare(index, maxIndex) > 0) {
-                    maxIndex = index;
-                }
-            }
-        }
-
-        return indexesTmp;
     }
 
     private Iterator<Record> readRecords(Path path) throws IOException {

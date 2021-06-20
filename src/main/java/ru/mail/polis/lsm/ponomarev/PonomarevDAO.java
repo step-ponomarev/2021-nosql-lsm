@@ -7,12 +7,7 @@ import ru.mail.polis.lsm.Record;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NavigableMap;
-import java.util.Spliterator;
-import java.util.Spliterators;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.StreamSupport;
@@ -20,10 +15,9 @@ import java.util.stream.StreamSupport;
 public class PonomarevDAO implements DAO {
     private static final int MEMORY_LIMIT = 131072;
 
-    private final Refrigerator sstable;
-
     private final NavigableMap<ByteBuffer, Record> store;
     private final AtomicInteger storeSize;
+    private final SSTable sstable;
 
     /**
      * @param config конфигурация дао
@@ -32,7 +26,7 @@ public class PonomarevDAO implements DAO {
     public PonomarevDAO(DAOConfig config) throws IOException {
         this.store = new ConcurrentSkipListMap<>();
         this.storeSize = new AtomicInteger(0);
-        this.sstable = new Refrigerator(config.getDir());
+        this.sstable = new SSTable(config.getDir());
     }
 
     @Override
@@ -48,12 +42,12 @@ public class PonomarevDAO implements DAO {
             }
 
             storeSize.getAndAdd(sizeOf(record));
-
+            
             if (storeSize.get() >= MEMORY_LIMIT) {
                 sstable.flush(store);
 
-                storeSize.set(0);
                 store.clear();
+                storeSize.set(0);
             }
         } catch (IOException e) {
             throw new IllegalStateException("Disk is not available", e);
@@ -68,7 +62,7 @@ public class PonomarevDAO implements DAO {
         if (data.isEmpty()) {
             return Collections.emptyIterator();
         }
-
+        
         return filterData(data, fromKey, toKey);
     }
 
@@ -96,7 +90,7 @@ public class PonomarevDAO implements DAO {
         }
 
         if (toKey != null) {
-            valid &= record.getKey().compareTo(toKey) <= 0;
+            valid &= record.getKey().compareTo(toKey) < 0;
         }
 
         return valid;
