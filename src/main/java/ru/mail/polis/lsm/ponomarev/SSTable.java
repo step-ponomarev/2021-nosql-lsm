@@ -197,7 +197,6 @@ class SSTable {
 
     private Map<Integer, Index> readIndexes() throws IOException {
         var path = getPath(INDEXES_FILE_NAME);
-
         if (Files.notExists(path)) {
             return new ConcurrentSkipListMap<>();
         }
@@ -206,7 +205,6 @@ class SSTable {
         try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
             var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
             while (mappedBuffer.hasRemaining()) {
-
                 var order = mappedBuffer.getInt();
                 var key = readByteBuffer(mappedBuffer);
                 var amount = mappedBuffer.getInt();
@@ -299,7 +297,6 @@ class SSTable {
         NavigableMap<ByteBuffer, Record> tmpStore = new ConcurrentSkipListMap<>();
         try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
             var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
-
             while (mappedBuffer.hasRemaining()) {
                 var key = readByteBuffer(mappedBuffer);
                 var value = readByteBuffer(mappedBuffer);
