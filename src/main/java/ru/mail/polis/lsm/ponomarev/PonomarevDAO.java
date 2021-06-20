@@ -34,7 +34,7 @@ public class PonomarevDAO implements DAO {
         try {
             var key = record.getKey();
             var value = record.getValue();
-
+            
             if (value != null) {
                 store.put(key, Record.of(key, value));
             } else {
