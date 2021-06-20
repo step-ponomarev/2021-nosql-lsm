@@ -53,9 +53,9 @@ class SSTable {
     }
 
     /**
-     * Создаем SSTable
-     * @param dir текущая директория
-     * @throws IOException выбрасывает, когда нужно
+     * 
+     * @param dir Необходимы параметр
+     * @throws IOException выбрасывает, когда хочет
      */
     public SSTable(Path dir) throws IOException {
         this.dir = dir;
