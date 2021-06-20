@@ -12,7 +12,16 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.stream.Collectors;
 
@@ -44,8 +53,9 @@ class SSTable {
     }
 
     /**
+     * Создаем SSTable
      * @param dir текущая директория
-     * @throws IOException
+     * @throws IOException выбрасывает, когда нужно
      */
     public SSTable(Path dir) throws IOException {
         this.dir = dir;
@@ -80,26 +90,6 @@ class SSTable {
         writeIndexes();
     }
 
-    public void resolveIndex(ByteBuffer key) {
-        Index index = null;
-
-        if (minIndex == null || maxIndex == null) {
-            index = new Index(0, key, 0);
-        }
-
-        if (minIndex != null && key.compareTo(minIndex.startKey) < 0 && minIndex.recordAmount == FILE_RECORD_LIMIT) {
-            index = new Index(minIndex.order - 1, key, 0);
-        }
-
-        if (maxIndex != null && key.compareTo(maxIndex.startKey) > 0 && maxIndex.recordAmount == FILE_RECORD_LIMIT) {
-            index = new Index(maxIndex.order + 1, key, 0);
-        }
-
-        if (index != null) {
-            indexes.put(index.order, index);
-        }
-    }
-
     private void flush(Record record) throws IOException {
         var index = findIndex(record.getKey());
         var path = getPath(getFileName(index.order));
@@ -126,6 +116,26 @@ class SSTable {
         }
 
         moveData(index, DAO.merge(recordsToMerge));
+    }
+
+    public void resolveIndex(ByteBuffer key) {
+        Index index = null;
+
+        if (minIndex == null || maxIndex == null) {
+            index = new Index(0, key, 0);
+        }
+
+        if (minIndex != null && key.compareTo(minIndex.startKey) < 0 && minIndex.recordAmount == FILE_RECORD_LIMIT) {
+            index = new Index(minIndex.order - 1, key, 0);
+        }
+
+        if (maxIndex != null && key.compareTo(maxIndex.startKey) > 0 && maxIndex.recordAmount == FILE_RECORD_LIMIT) {
+            index = new Index(maxIndex.order + 1, key, 0);
+        }
+
+        if (index != null) {
+            indexes.put(index.order, index);
+        }
     }
 
     private void moveData(Index index, Iterator<Record> data) throws IOException {
