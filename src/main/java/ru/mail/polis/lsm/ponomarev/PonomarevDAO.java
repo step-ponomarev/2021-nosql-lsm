@@ -32,26 +32,30 @@ public class PonomarevDAO implements DAO {
     @Override
     public void upsert(Record record) {
         try {
-            var key = record.getKey();
-            var value = record.getValue();
+            ByteBuffer key = record.getKey();
+            ByteBuffer value = record.getValue();
             
-            if (value != null) {
-                store.put(key, Record.of(key, value));
-            } else {
-                store.put(key, Record.tombstone(key));
-            }
+            Record storedRecord = (value == null) ? Record.tombstone(key) : Record.of(key, value);
+            store.put(key, storedRecord);
 
-            storeSize.getAndAdd(sizeOf(record));
+            storeSize.getAndAdd(sizeOf(storedRecord));
 
             if (storeSize.get() >= MEMORY_LIMIT) {
-                sstable.flush(store);
-
-                store.clear();
-                storeSize.set(0);
+                synchronized (this) {
+                    if (storeSize.get() >= MEMORY_LIMIT) {
+                        this.flushStore();
+                    }
+                }
             }
         } catch (IOException e) {
             throw new IllegalStateException("Disk is not available", e);
         }
+    }
+    
+    private void flushStore() throws IOException {
+        sstable.flush(store);
+        store.clear();
+        storeSize.set(0);
     }
 
     @Override
