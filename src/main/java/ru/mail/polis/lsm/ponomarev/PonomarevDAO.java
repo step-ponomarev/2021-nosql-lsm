@@ -51,12 +51,6 @@ public class PonomarevDAO implements DAO {
             throw new IllegalStateException("Disk is not available", e);
         }
     }
-    
-    private void flushStore() throws IOException {
-        sstable.flush(store);
-        store.clear();
-        storeSize.set(0);
-    }
 
     @Override
     public Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
@@ -73,6 +67,12 @@ public class PonomarevDAO implements DAO {
     @Override
     public void close() throws IOException {
         sstable.flush(store);
+    }
+    
+    private void flushStore() throws IOException {
+        sstable.flush(store);
+        store.clear();
+        storeSize.set(0);
     }
 
     private Iterator<Record> filterData(List<Iterator<Record>> data, ByteBuffer fromKey, ByteBuffer toKey) {
