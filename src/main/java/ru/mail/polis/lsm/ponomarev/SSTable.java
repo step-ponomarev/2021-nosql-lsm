@@ -53,7 +53,6 @@ class SSTable {
     }
 
     /**
-     * 
      * @param dir Необходимы параметр
      * @throws IOException выбрасывает, когда хочет
      */
@@ -72,8 +71,8 @@ class SSTable {
                 return readData(minIndex, maxIndex);
             }
 
-            var fromIndex = fromKey == null ? minIndex : findIndex(fromKey);
-            var toIndex = toKey == null ? maxIndex : findIndex(toKey);
+            Index fromIndex = fromKey == null ? minIndex : findIndex(fromKey);
+            Index toIndex = toKey == null ? maxIndex : findIndex(toKey);
 
             return readData(fromIndex, toIndex);
         } catch (IOException e) {
@@ -82,7 +81,7 @@ class SSTable {
     }
 
     public void flush(NavigableMap<ByteBuffer, Record> store) throws IOException {
-        for (var record : store.values()) {
+        for (Record record : store.values()) {
             resolveIndex(record.getKey());
             flush(record);
         }
@@ -91,16 +90,17 @@ class SSTable {
     }
 
     private void flush(Record record) throws IOException {
-        var index = findIndex(record.getKey());
-        var path = getPath(getFileName(index.order));
-        var data = Files.exists(path) ? readRecords(path) : Collections.<Record>emptyIterator();
+        Index index = findIndex(record.getKey());
+        Path path = getPath(getFileName(index.order));
+        Iterator<Record> recordsByCurrentIndex = Files.exists(path) ? readRecords(path) : Collections.emptyIterator();
 
         Map<ByteBuffer, Record> records = new TreeMap<>();
         boolean isDeleting = record.getValue() == null;
-        while (data.hasNext()) {
-            var oldRecord = data.next();
+        while (recordsByCurrentIndex.hasNext()) {
+            Record oldRecord = recordsByCurrentIndex.next();
 
-            if (oldRecord.getKey().compareTo(record.getKey()) != 0) {
+            boolean notCurrentFlushingRecordKey = oldRecord.getKey().compareTo(record.getKey()) != 0;
+            if (notCurrentFlushingRecordKey) {
                 records.put(oldRecord.getKey(), oldRecord);
             }
         }
@@ -139,7 +139,7 @@ class SSTable {
     }
 
     private void moveData(Index index, Iterator<Record> data) throws IOException {
-        var currentOrder = index.order;
+        int currentOrder = index.order;
 
         if (!data.hasNext()) {
             Files.deleteIfExists(getPath(getFileName(currentOrder)));
@@ -147,14 +147,14 @@ class SSTable {
         }
 
         while (data.hasNext()) {
-            var path = getPath(getFileName(currentOrder));
+            Path path = getPath(getFileName(currentOrder));
             Files.deleteIfExists(path);
 
-            var inFile = 0;
+            int inFile = 0;
             Record firstRecord = null;
-            try (var ch = FileChannel.open(path, WRITE_OPTIONS)) {
-                for (var i = 0; i < FILE_RECORD_LIMIT && data.hasNext(); i++) {
-                    var record = data.next();
+            try (FileChannel ch = FileChannel.open(path, WRITE_OPTIONS)) {
+                for (int i = 0; i < FILE_RECORD_LIMIT && data.hasNext(); i++) {
+                    Record record = data.next();
 
                     writeRecord(ch, record.getKey());
                     writeRecord(ch, record.getValue());
@@ -183,11 +183,11 @@ class SSTable {
     }
 
     private void writeIndexes() throws IOException {
-        var path = getPath(INDEXES_FILE_NAME);
+        Path path = getPath(INDEXES_FILE_NAME);
         Files.deleteIfExists(path);
 
-        try (var fc = FileChannel.open(path, SSTable.WRITE_OPTIONS)) {
-            for (var index : indexes.values()) {
+        try (FileChannel fc = FileChannel.open(path, SSTable.WRITE_OPTIONS)) {
+            for (Index index : indexes.values()) {
                 fc.write(toByteBuffer(index.order));
                 writeRecord(fc, index.startKey);
                 fc.write(toByteBuffer(index.recordAmount));
@@ -196,20 +196,20 @@ class SSTable {
     }
 
     private Map<Integer, Index> readIndexes() throws IOException {
-        var path = getPath(INDEXES_FILE_NAME);
+        Path path = getPath(INDEXES_FILE_NAME);
         if (Files.notExists(path)) {
             return new ConcurrentSkipListMap<>();
         }
 
         final Map<Integer, Index> indexesTmp = new ConcurrentSkipListMap<>();
-        try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
-            var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+        try (FileChannel fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
+            MappedByteBuffer mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
             while (mappedBuffer.hasRemaining()) {
-                var order = mappedBuffer.getInt();
-                var key = readByteBuffer(mappedBuffer);
-                var amount = mappedBuffer.getInt();
+                int order = mappedBuffer.getInt();
+                ByteBuffer key = readByteBuffer(mappedBuffer);
+                int amount = mappedBuffer.getInt();
 
-                var index = new Index(order, key, amount);
+                Index index = new Index(order, key, amount);
                 indexesTmp.put(index.order, index);
 
                 if (minIndex == null && maxIndex == null) {
@@ -241,9 +241,9 @@ class SSTable {
 
     private List<Iterator<Record>> readData(Index fromIndex, Index toIndex) throws IOException {
         List<Iterator<Record>> recordsToMerge = new ArrayList<>();
-        var validIndexes = getIndexesBetween(fromIndex, toIndex);
-        for (var index : validIndexes) {
-            var path = getPath(getFileName(index.order));
+        Set<Index> validIndexes = getIndexesBetween(fromIndex, toIndex);
+        for (Index index : validIndexes) {
+            Path path = getPath(getFileName(index.order));
 
             if (Files.exists(path)) {
                 recordsToMerge.add(readRecords(path));
@@ -272,21 +272,20 @@ class SSTable {
         List<Index> indexList = new ArrayList<>(indexes.values());
 
         while (indexList.size() > 1) {
-            var index = indexList.size() / 2;
-            var midIndex = indexList.get(index);
+            int i = indexList.size() / 2;
+            Index midIndex = indexList.get(i);
 
-            var compareResult = key.compareTo(midIndex.startKey);
-
+            int compareResult = key.compareTo(midIndex.startKey);
             if (compareResult == 0) {
                 return midIndex;
             }
 
             if (compareResult <= 0) {
-                indexList = indexList.subList(0, index);
+                indexList = indexList.subList(0, i);
             }
 
             if (compareResult > 0) {
-                indexList = indexList.subList(index, indexList.size());
+                indexList = indexList.subList(i, indexList.size());
             }
         }
 
@@ -295,11 +294,11 @@ class SSTable {
 
     private Iterator<Record> readRecords(Path path) throws IOException {
         NavigableMap<ByteBuffer, Record> tmpStore = new ConcurrentSkipListMap<>();
-        try (var fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
-            var mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
+        try (FileChannel fc = FileChannel.open(path, READ_OPEN_OPTIONS)) {
+            MappedByteBuffer mappedBuffer = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size());
             while (mappedBuffer.hasRemaining()) {
-                var key = readByteBuffer(mappedBuffer);
-                var value = readByteBuffer(mappedBuffer);
+                ByteBuffer key = readByteBuffer(mappedBuffer);
+                ByteBuffer value = readByteBuffer(mappedBuffer);
 
                 tmpStore.put(key, Record.of(key, value));
             }
@@ -309,8 +308,8 @@ class SSTable {
     }
 
     private ByteBuffer readByteBuffer(MappedByteBuffer mappedBuffer) {
-        var size = mappedBuffer.getInt();
-        var buffer = mappedBuffer.slice().limit(size).asReadOnlyBuffer();
+        int size = mappedBuffer.getInt();
+        ByteBuffer buffer = mappedBuffer.slice().limit(size).asReadOnlyBuffer();
         mappedBuffer.position(mappedBuffer.position() + size);
 
         return buffer;
