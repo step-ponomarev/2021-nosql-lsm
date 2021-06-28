@@ -13,6 +13,13 @@ import java.util.NoSuchElementException;
  * Minimal database API.
  */
 public interface DAO extends Closeable {
+
+    Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey);
+
+    void upsert(Record record);
+
+    void compact();
+
     /**
      * Appends {@code Byte.MIN_VALUE} to {@code buffer}.
      *
@@ -49,7 +56,7 @@ public interface DAO extends Closeable {
     class MergeIterator implements Iterator<Record> {
         private final Iterator<Record> firstIter;
         private final Iterator<Record> secondIter;
-        
+
         private Record firstRecord;
         private Record secondRecord;
 
@@ -117,7 +124,7 @@ public interface DAO extends Closeable {
             if (r1 == null) {
                 return 1;
             }
-            
+
             if (r2 == null) {
                 return -1;
             }
@@ -129,8 +136,4 @@ public interface DAO extends Closeable {
             return iter.hasNext() ? iter.next() : null;
         }
     }
-
-    Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey);
-
-    void upsert(Record record);
 }
