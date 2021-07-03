@@ -175,6 +175,6 @@ class SSTable {
     }
 
     private Path getPath(String postfix) {
-        return dir.resolveSibling("file" + postfix).getFileName();
+        return dir.resolveSibling("file" + postfix);
     }
 }
