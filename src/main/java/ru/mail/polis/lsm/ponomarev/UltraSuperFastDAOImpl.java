@@ -37,12 +37,21 @@ public class UltraSuperFastDAOImpl implements DAO {
 
     @Override
     public Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
-        return store.values().stream()
-                .filter(r -> recordFilter(r, fromKey, toKey))
-                .iterator();
+        try {
+            var merged = DAO.merge(List.of(table.read(fromKey, toKey), store.values()
+                    .stream()
+                    .filter(r -> filterRecords(r, fromKey, toKey))
+                    .iterator())
+            );
+
+            return merged;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return Collections.emptyIterator();
+        }
     }
 
-    private boolean recordFilter(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
+    private boolean filterRecords(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
         if (record.isTombstone()) {
             return false;
         }

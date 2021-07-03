@@ -20,7 +20,7 @@ class SSTable {
 
     private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
     private static final Set<? extends OpenOption> WRITE_OPTIONS
-            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE_NEW);
+            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 
     private final Path dir;
 
@@ -57,7 +57,23 @@ class SSTable {
             return records.values().iterator();
         }
 
-        return records.values().iterator();
+        return records.values()
+                .stream()
+                .filter(r -> filterRecords(r, fromKey, toKey))
+                .iterator();
+    }
+
+    private boolean filterRecords(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
+        if (fromKey == null) {
+            return record.getKey().compareTo(toKey) <= 0;
+        }
+
+        if (toKey == null) {
+            return record.getKey().compareTo(fromKey) >= 0;
+        }
+
+        return record.getKey().compareTo(fromKey) >= 0
+                && record.getKey().compareTo(toKey) <= 0;
     }
 
     /**
@@ -112,8 +128,13 @@ class SSTable {
         Path indexFile = getPath(INDEX_FILE_POSTFIX);
         Path recordFile = getPath(RECORD_FILE_POSTFIX);
 
-        Files.deleteIfExists(indexFile);
-        Files.deleteIfExists(recordFile);
+        if (Files.notExists(indexFile)) {
+            Files.createFile(indexFile);
+        }
+        
+        if (Files.notExists(recordFile)) {
+            Files.createFile(recordFile);
+        }
 
         try (var indexFileChannel = FileChannel.open(indexFile, WRITE_OPTIONS);
              var recordFileChannel = FileChannel.open(recordFile, WRITE_OPTIONS);
@@ -175,6 +196,6 @@ class SSTable {
     }
 
     private Path getPath(String postfix) {
-        return dir.resolveSibling("file" + postfix);
+        return dir.resolve("file" + postfix);
     }
 }
