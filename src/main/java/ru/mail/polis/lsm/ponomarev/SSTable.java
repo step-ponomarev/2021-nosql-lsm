@@ -31,7 +31,7 @@ class SSTable {
     public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
         final Map<ByteBuffer, Record> records = new ConcurrentSkipListMap<>();
         final Path recordFile = getPath(RECORD_FILE_POSTFIX);
-        
+
         if (Files.notExists(recordFile)) {
             return Collections.emptyIterator();
         }
@@ -131,7 +131,7 @@ class SSTable {
         if (Files.notExists(indexFile)) {
             Files.createFile(indexFile);
         }
-        
+
         if (Files.notExists(recordFile)) {
             Files.createFile(recordFile);
         }
