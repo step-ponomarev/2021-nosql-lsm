@@ -11,7 +11,11 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 class SSTable {
@@ -116,7 +120,12 @@ class SSTable {
         return buffer;
     }
 
-    //TODO: Нужно как-то читать индексы( их нужно держать в актуальном состоянии ).  
+    //TODO: Нужно как-то читать индексы( их нужно держать в актуальном состоянии ). 
+    // Нужен индекс со смещением, чтобы переходить на нужную позицию в файле.  
+    // Индексы держим в памяти (?)
+    // Ищем по ключу нужный индекс
+    // Читаем пока не упремся в ключ справа
+    
 
     /**
      * Сохраняет данные на диск.
