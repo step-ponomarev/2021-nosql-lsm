@@ -7,8 +7,7 @@ import ru.mail.polis.lsm.Record;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.NavigableMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class UltraSuperFastDAOImpl implements DAO {
@@ -24,16 +23,21 @@ public class UltraSuperFastDAOImpl implements DAO {
     public UltraSuperFastDAOImpl(DAOConfig config) throws IOException {
         this.table = new SSTable(config.getDir());
         this.store = new ConcurrentSkipListMap<>();
+
+        var records = this.table.read(null, null);
+        while (records.hasNext()) {
+            var record = records.next();
+            if (record.isTombstone()) {
+                store.remove(record.getKey());
+            } else {
+                store.put(record.getKey(), record);
+            }
+        }
     }
 
     @Override
     public Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
-        if (fromKey == null && toKey == null) {
-            return this.store.values().stream().filter(r -> !r.isTombstone()).iterator();
-        }
-
-        return this.store.values()
-                .stream()
+        return store.values().stream()
                 .filter(r -> recordFilter(r, fromKey, toKey))
                 .iterator();
     }
@@ -43,9 +47,20 @@ public class UltraSuperFastDAOImpl implements DAO {
             return false;
         }
 
-        return fromKey == null
-                ? record.getKey().compareTo(toKey) <= 0
-                : record.getKey().compareTo(fromKey) >= 0;
+        if (fromKey == null && toKey == null) {
+            return true;
+        }
+
+        if (fromKey == null) {
+            return record.getKey().compareTo(toKey) <= 0;
+        }
+
+        if (toKey == null) {
+            return record.getKey().compareTo(fromKey) >= 0;
+        }
+
+        return record.getKey().compareTo(fromKey) >= 0
+                && record.getKey().compareTo(toKey) <= 0;
     }
 
     @Override
@@ -54,12 +69,11 @@ public class UltraSuperFastDAOImpl implements DAO {
         ByteBuffer value = record.getValue();
 
         Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
-
-        this.store.put(key, newRecord);
+        store.put(key, newRecord);
     }
 
     @Override
     public void close() throws IOException {
-        this.store.clear();
+        table.flush(store.values());
     }
 }
