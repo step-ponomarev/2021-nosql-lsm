@@ -45,9 +45,6 @@ class SSTable {
     private static final Set<? extends OpenOption> APPEND_WRITE_OPTION
             = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 
-    private static final Set<? extends OpenOption> CREATE_NEW_WRITE_OPTION
-            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-
     private final Path dir;
 
     public SSTable(Path dir) {
