@@ -4,7 +4,6 @@ import ru.mail.polis.lsm.Record;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -53,19 +52,46 @@ class SSTable {
         this.indices = readIndices();
     }
 
-    public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
-        final Map<ByteBuffer, Record> records = new ConcurrentSkipListMap<>();
-        final Path recordFile = getPath(RECORD_FILE_POSTFIX);
+    /**
+     * Сохраняет данные на диск.
+     *
+     * @param records данные.
+     * @throws IOException выбрасывает в случае ошибки записи.
+     */
+    public synchronized void flush(Iterable<Record> records) throws IOException {
+        Path recordFile = getPath(RECORD_FILE_POSTFIX);
 
         if (Files.notExists(recordFile)) {
+            Files.createFile(recordFile);
+        }
+
+        try (var recordFileChannel = FileChannel.open(recordFile, RECORDS_WRITE_OPTION)) {
+            for (Record record : records) {
+                // Смещение ByteBuffer не превышает Integer.MAX_VALUE.
+                int positionOfCurrentKey = (int) recordFileChannel.position();
+                writeRecord(recordFileChannel, record);
+
+                ByteBuffer key = record.getKey();
+                indices.put(key, new Index(key, positionOfCurrentKey));
+            }
+        }
+
+        writeIndices();
+    }
+
+    public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
+        final Path recordFile = getPath(RECORD_FILE_POSTFIX);
+
+        if (Files.notExists(recordFile) || indices.isEmpty()) {
             return Collections.emptyIterator();
         }
 
-        try (var recordFileChannel = FileChannel.open(recordFile, COMMON_READ_OPEN_OPTIONS)) {
-            var mappedByteBuffer = recordFileChannel.map(
+        final Map<ByteBuffer, Record> records = new ConcurrentSkipListMap<>();
+        try (var fileChannel = FileChannel.open(recordFile, COMMON_READ_OPEN_OPTIONS)) {
+            var mappedByteBuffer = fileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    recordFileChannel.size()
+                    fileChannel.size()
             );
 
             List<Index> indexes = getIndexesInRange(fromKey, toKey);
@@ -85,7 +111,7 @@ class SSTable {
     }
 
     private List<Index> getIndexesInRange(ByteBuffer fromKey, ByteBuffer toKey) {
-        return this.indices
+        return indices
                 .values()
                 .stream()
                 .filter(i -> filterIndex(i, fromKey, toKey))
@@ -112,92 +138,32 @@ class SSTable {
     }
 
     /**
-     * Читает запись с диска.
-     *
-     * @param mappedByteBuffer через него осуществляется чтение.
-     * @return Запись, прочитанная с диска.
-     */
-    private Record readRecord(MappedByteBuffer mappedByteBuffer) {
-        ByteBuffer key = readByteBuffer(mappedByteBuffer);
-        ByteBuffer value = readByteBuffer(mappedByteBuffer);
-
-        if (key == null) {
-            throw new IllegalStateException("Key mustn't be null");
-        }
-
-        if (value == null) {
-            return Record.tombstone(key);
-        }
-
-        return Record.of(key, value);
-    }
-
-    /**
-     * Читает ByteBuffer.
-     *
-     * @param mappedByteBuffer через него осуществляется чтение.
-     * @return возвращает запись, может вернуть null.
-     */
-    @Nullable
-    private ByteBuffer readByteBuffer(MappedByteBuffer mappedByteBuffer) {
-        int size = mappedByteBuffer.getInt();
-        if (size < 0) {
-            return null;
-        }
-
-        ByteBuffer buffer = mappedByteBuffer.slice().limit(size).asReadOnlyBuffer();
-        mappedByteBuffer.position(mappedByteBuffer.position() + size);
-
-        return buffer;
-    }
-
-    /**
-     * Сохраняет данные на диск.
-     *
-     * @param records данные.
-     * @throws IOException выбрасывает в случае ошибки записи.
-     */
-    public synchronized void flush(Iterable<Record> records) throws IOException {
-        Path recordFile = getPath(RECORD_FILE_POSTFIX);
-
-        if (Files.notExists(recordFile)) {
-            Files.createFile(recordFile);
-        }
-
-        Map<ByteBuffer, Index> indices = new TreeMap<>();
-        try (var recordFileChannel = FileChannel.open(recordFile, RECORDS_WRITE_OPTION)) {
-            for (Record record : records) {
-                // Смещение ByteBuffer не превышает Integer.MAX_VALUE.
-                int positionOfCurrentKey = (int) recordFileChannel.position();
-                writeRecord(recordFileChannel, record);
-
-                indices.put(record.getKey(), new Index(record.getKey(), positionOfCurrentKey));
-            }
-        }
-
-        writeIndices(indices);
-    }
-
-    /**
      * Сохраняем индексы с учетом новых.
      *
-     * @param indices новые индексы.
      * @throws IOException в случае ошибки записи.
      */
-    private void writeIndices(Map<ByteBuffer, Index> indices) throws IOException {
+    private void writeIndices() throws IOException {
         Path indexFile = getPath(INDEX_FILE_POSTFIX);
 
         Files.deleteIfExists(indexFile);
 
         try (var fileChannel = FileChannel.open(indexFile, INDICES_WRITE_OPTION)) {
-            for (var index : indices.values()) {
-                this.indices.put(index.key, index);
-            }
-
             for (var index : this.indices.values()) {
                 writeIndex(fileChannel, index);
             }
         }
+    }
+
+    /**
+     * Записываем индеус на диск.
+     *
+     * @param fileChannel канал через который будем записывать.
+     * @param index       индекс, который будет сохранен на диск.
+     * @throws IOException выбрасывает в случае ошибки записи.
+     */
+    private void writeIndex(FileChannel fileChannel, Index index) throws IOException {
+        writeByteBufferWithSize(fileChannel, index.key);
+        fileChannel.write(convertToByteBuffer(index.position));
     }
 
     /**
@@ -237,20 +203,10 @@ class SSTable {
      * @return Возвращает индекс записи.
      */
     private Index readIndex(MappedByteBuffer mappedByteBuffer) {
-        ByteBuffer key = readByteBuffer(mappedByteBuffer);
+        ByteBuffer key = readByteBufferWithSize(mappedByteBuffer);
         int position = mappedByteBuffer.getInt();
 
         return new Index(key, position);
-    }
-
-    /**
-     * @param fileChannel канал через который будем записывать.
-     * @param index       индекс, который будет сохранен на диск.
-     * @throws IOException выбрасывает в случае ошибки записи.
-     */
-    private void writeIndex(FileChannel fileChannel, Index index) throws IOException {
-        writeByteBufferWithSize(fileChannel, index.key);
-        fileChannel.write(convertToByteBuffer(index.position));
     }
 
     /**
@@ -267,6 +223,27 @@ class SSTable {
     }
 
     /**
+     * Читает запись с диска.
+     *
+     * @param mappedByteBuffer через него осуществляется чтение.
+     * @return Запись, прочитанная с диска.
+     */
+    private Record readRecord(MappedByteBuffer mappedByteBuffer) {
+        ByteBuffer key = readByteBufferWithSize(mappedByteBuffer);
+        ByteBuffer value = readByteBufferWithSize(mappedByteBuffer);
+
+        if (key == null) {
+            throw new IllegalStateException("Key mustn't be null");
+        }
+
+        if (value == null) {
+            return Record.tombstone(key);
+        }
+
+        return Record.of(key, value);
+    }
+
+    /**
      * Метод сохраняет на диск размер записи, а затем запись.
      * Если запись null пишем отрицательный размер на диск.
      *
@@ -279,10 +256,29 @@ class SSTable {
             fileChannel.write(convertToByteBuffer(-1));
             return;
         }
-        
+
         int size = buffer.remaining();
         fileChannel.write(convertToByteBuffer(size));
-        fileChannel.write(buffer);
+        fileChannel.write(buffer.asReadOnlyBuffer());
+    }
+
+    /**
+     * Читает ByteBuffer.
+     *
+     * @param mappedByteBuffer через него осуществляется чтение.
+     * @return возвращает запись, может вернуть null.
+     */
+    @Nullable
+    private ByteBuffer readByteBufferWithSize(MappedByteBuffer mappedByteBuffer) {
+        int size = mappedByteBuffer.getInt();
+        if (size < 0) {
+            return null;
+        }
+
+        ByteBuffer buffer = mappedByteBuffer.slice().limit(size).asReadOnlyBuffer();
+        mappedByteBuffer.position(mappedByteBuffer.position() + size);
+
+        return buffer;
     }
 
     private ByteBuffer convertToByteBuffer(int n) {

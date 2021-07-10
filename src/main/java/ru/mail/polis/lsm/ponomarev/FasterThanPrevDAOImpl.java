@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class FasterThanPrevDAOImpl implements DAO {
-    private static final int MEMORY_LIMIT = 1024 * 1024;
+    private static final int MEMORY_LIMIT = 1234;
 
     private NavigableMap<ByteBuffer, Record> store;
     private final SSTable table;
