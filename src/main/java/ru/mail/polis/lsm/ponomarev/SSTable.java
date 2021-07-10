@@ -114,8 +114,6 @@ class SSTable {
             }
         }
 
-        writeIndices(allIndices, CREATE_NEW_WRITE_OPTION);
-
         return records.values().iterator();
     }
 
@@ -314,10 +312,6 @@ class SSTable {
 
     private ByteBuffer convertToByteBuffer(int n) {
         return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(n).array());
-    }
-
-    private ByteBuffer convertToByteBuffer(long n) {
-        return ByteBuffer.wrap(ByteBuffer.allocate(Long.BYTES).putLong(n).array());
     }
 
     private Path getPath(String postfix) {

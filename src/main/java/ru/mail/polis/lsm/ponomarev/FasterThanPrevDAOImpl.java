@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class FasterThanPrevDAOImpl implements DAO {
-    private static final int MEMORY_LIMIT = 123456;
+    private static final int MEMORY_LIMIT = 9999999;
 
     private NavigableMap<ByteBuffer, Record> store;
     private final SSTable table;
@@ -99,11 +99,11 @@ public final class FasterThanPrevDAOImpl implements DAO {
     private void flushRecords() throws IOException {
         table.flush(store.values().iterator());
         store = new ConcurrentSkipListMap<>();
-        this.storeSize = 0;
+        storeSize = 0;
     }
 
     private synchronized void updateStoreSize(Record record) {
-        this.storeSize += sizeOf(record);
+        storeSize += sizeOf(record);
     }
 
     private int sizeOf(Record record) {
