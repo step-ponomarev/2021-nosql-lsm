@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class FasterThanPrevDAOImpl implements DAO {
-    private static final int MEMORY_LIMIT = 1234;
+    private static final int MEMORY_LIMIT = 12345;
 
     private NavigableMap<ByteBuffer, Record> store;
     private final SSTable table;
@@ -32,15 +32,10 @@ public final class FasterThanPrevDAOImpl implements DAO {
         try {
             var recordsFromDisk = table.read(fromKey, toKey);
             var recordsFromStore = getStoredValues(fromKey, toKey);
-            
-            if (!recordsFromDisk.hasNext() && !recordsFromStore.hasNext()) {
-                return Collections.emptyIterator();
-            }
 
             return DAO.merge(List.of(recordsFromDisk, recordsFromStore));
         } catch (IOException e) {
-            e.printStackTrace();
-            return Collections.emptyIterator();
+            throw new RuntimeException("Disk reading are failed.", e.getCause());
         }
     }
 
@@ -69,7 +64,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
 
     @Override
     public void close() throws IOException {
-        table.flush(store.values());
+        table.flush(store.values().iterator());
         store = null;
     }
 
@@ -102,7 +97,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
     }
 
     private void flushRecords() throws IOException {
-        table.flush(store.values());
+        table.flush(store.values().iterator());
         store = new ConcurrentSkipListMap<>();
         this.storeSize = 0;
     }

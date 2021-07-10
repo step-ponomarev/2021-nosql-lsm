@@ -11,15 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.stream.Collectors;
 
@@ -36,20 +28,20 @@ class SSTable {
 
     private static final String RECORD_FILE_POSTFIX = ".rec";
     private static final String INDEX_FILE_POSTFIX = ".index";
+    
+    private static final int FILE_SIZE_LIMIT = Integer.MAX_VALUE - 1024;
 
     private static final Set<? extends OpenOption> COMMON_READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
-    private static final Set<? extends OpenOption> RECORDS_WRITE_OPTION
+    private static final Set<? extends OpenOption> APPEND_WRITE_OPTION
             = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 
-    private static final Set<? extends OpenOption> INDICES_WRITE_OPTION
-            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+    private static final Set<? extends OpenOption> CREATE_NEW_WRITE_OPTION
+            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE);
 
     private final Path dir;
-    private final NavigableMap<ByteBuffer, Index> indices;
 
-    public SSTable(Path dir) throws IOException {
+    public SSTable(Path dir) {
         this.dir = dir;
-        this.indices = readIndices();
     }
 
     /**
@@ -58,31 +50,47 @@ class SSTable {
      * @param records данные.
      * @throws IOException выбрасывает в случае ошибки записи.
      */
-    public synchronized void flush(Iterable<Record> records) throws IOException {
+    public synchronized void flush(Iterator<Record> records) throws IOException {
         Path recordFile = getPath(RECORD_FILE_POSTFIX);
 
         if (Files.notExists(recordFile)) {
             Files.createFile(recordFile);
         }
 
-        try (var recordFileChannel = FileChannel.open(recordFile, RECORDS_WRITE_OPTION)) {
-            for (Record record : records) {
-                // Смещение ByteBuffer не превышает Integer.MAX_VALUE.
-                int positionOfCurrentKey = (int) recordFileChannel.position();
-                writeRecord(recordFileChannel, record);
+        long fileSize = Files.size(recordFile);
+        if (fileSize >= FILE_SIZE_LIMIT) {
+            var recordIterator = read(null, null);
 
-                ByteBuffer key = record.getKey();
-                indices.put(key, new Index(key, positionOfCurrentKey));
+            try (var fileChannel = FileChannel.open(recordFile, CREATE_NEW_WRITE_OPTION)) {
+                writeRecords(recordIterator, fileChannel);
             }
         }
 
-        writeIndices();
+        try (var fileChannel = FileChannel.open(recordFile, APPEND_WRITE_OPTION)) {
+            writeRecords(records, fileChannel);
+        }
+    }
+
+    private void writeRecords(Iterator<Record> records, FileChannel fileChannel) throws IOException {
+        final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
+        while (records.hasNext()) {
+            Record record = records.next();
+
+            // Смещение ByteBuffer не превышает Integer.MAX_VALUE.
+            int positionOfCurrentKey = (int) fileChannel.position();
+            writeRecord(fileChannel, record);
+
+            ByteBuffer key = record.getKey();
+            indices.put(key, new Index(key, positionOfCurrentKey));
+        }
+
+        writeIndices(indices, APPEND_WRITE_OPTION);
     }
 
     public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
         final Path recordFile = getPath(RECORD_FILE_POSTFIX);
 
-        if (Files.notExists(recordFile) || indices.isEmpty()) {
+        if (Files.notExists(recordFile)) {
             return Collections.emptyIterator();
         }
 
@@ -94,7 +102,8 @@ class SSTable {
                     fileChannel.size()
             );
 
-            List<Index> indexes = getIndexesInRange(fromKey, toKey);
+            NavigableMap<ByteBuffer, Index> allIndices = readIndices();
+            List<Index> indexes = filterIndices(allIndices.values(), fromKey, toKey);
             for (var index : indexes) {
                 mappedByteBuffer.position(index.position);
                 Record record = readRecord(mappedByteBuffer);
@@ -105,14 +114,21 @@ class SSTable {
                     records.put(record.getKey(), record);
                 }
             }
+
+            writeIndices(allIndices, CREATE_NEW_WRITE_OPTION);
         }
 
         return records.values().iterator();
     }
 
-    private List<Index> getIndexesInRange(ByteBuffer fromKey, ByteBuffer toKey) {
+    /**
+     * @param indices предоставленные индексы.
+     * @param fromKey ключ, меньше которого мы отсеиваем.
+     * @param toKey   ключ, больше которого мы отсеиваем.
+     * @return
+     */
+    private List<Index> filterIndices(Collection<Index> indices, @Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
         return indices
-                .values()
                 .stream()
                 .filter(i -> filterIndex(i, fromKey, toKey))
                 .sorted(Comparator.comparing(l -> l.key))
@@ -142,13 +158,15 @@ class SSTable {
      *
      * @throws IOException в случае ошибки записи.
      */
-    private void writeIndices() throws IOException {
+    private void writeIndices(NavigableMap<ByteBuffer, Index> indices, Set<? extends OpenOption> writeOptions) throws IOException {
         Path indexFile = getPath(INDEX_FILE_POSTFIX);
 
-        Files.deleteIfExists(indexFile);
+        if (Files.notExists(indexFile)) {
+            Files.createFile(indexFile);
+        }
 
-        try (var fileChannel = FileChannel.open(indexFile, INDICES_WRITE_OPTION)) {
-            for (var index : this.indices.values()) {
+        try (var fileChannel = FileChannel.open(indexFile, writeOptions)) {
+            for (var index : indices.values()) {
                 writeIndex(fileChannel, index);
             }
         }
