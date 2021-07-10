@@ -11,7 +11,15 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.stream.Collectors;
 
@@ -46,27 +54,15 @@ class SSTable {
         this.dir = dir;
     }
 
-    /**
-     * Сохраняет данные на диск.
-     *
-     * @param records данные.
-     * @throws IOException выбрасывает в случае ошибки записи.
-     */
     public synchronized void flush(Iterator<Record> records) throws IOException {
-        Path recordFile = getPath(0, RECORD_FILE_POSTFIX);
-        if (Files.notExists(recordFile)) {
-            Files.createFile(recordFile);
+        Path firstFile = getPath(0, RECORD_FILE_POSTFIX);
+        if (Files.notExists(firstFile)) {
+            Files.createFile(firstFile);
         }
 
-        long sizeSum = 0;
-        Path path = recordFile;
-        for (int i = 0; Files.exists(path); i++) {
-            sizeSum += Files.size(path);
-            path = getPath(i, RECORD_FILE_POSTFIX);
-        }
-
-        int fileIndex = (int) (sizeSum / FILE_SIZE_LIMIT);
-        recordFile = getPath(fileIndex, RECORD_FILE_POSTFIX);
+        long storeSize = getStoreSize();
+        int fileIndex = (int) (storeSize / FILE_SIZE_LIMIT);
+        Path recordFile = getPath(fileIndex, RECORD_FILE_POSTFIX);
 
         if (Files.notExists(recordFile)) {
             Files.createFile(recordFile);
@@ -77,31 +73,14 @@ class SSTable {
         }
     }
 
-    private void writeRecords(Iterator<Record> records, FileChannel fileChannel, int fileIndex) throws IOException {
-        final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
-        while (records.hasNext()) {
-            Record record = records.next();
-
-            int filePosition = (int) fileChannel.position();
-            writeRecord(fileChannel, record);
-
-            indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition));
-        }
-
-        writeIndices(indices, APPEND_WRITE_OPTION);
-    }
-
     public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
-        final Map<ByteBuffer, Record> records = new ConcurrentSkipListMap<>();
-
-        NavigableMap<ByteBuffer, Index> allIndices = readIndices();
-        Collection<Index> indexes = filterIndices(allIndices.values(), fromKey, toKey);
+        Collection<Index> indexes = filterIndices(readIndices().values(), fromKey, toKey);
         Set<Integer> fileIndices = indexes.stream()
                 .map(i -> i.fileIndex)
                 .collect(Collectors.toSet());
 
-        Map<Integer, MappedByteBuffer> fileIndexToMappedByteBuffer = getReaders(fileIndices);
-
+        Map<Integer, MappedByteBuffer> fileIndexToMappedByteBuffer = createReaders(fileIndices);
+        final Map<ByteBuffer, Record> records = new ConcurrentSkipListMap<>();
         for (var index : indexes) {
             var mappedByteBuffer = fileIndexToMappedByteBuffer.get(index.fileIndex);
             mappedByteBuffer.position(index.position);
@@ -117,19 +96,91 @@ class SSTable {
         return records.values().iterator();
     }
 
-    private Map<Integer, MappedByteBuffer> getReaders(Collection<Integer> fileIndices) throws IOException {
+    /**
+     * @return суммарный вес хранилища.
+     * @throws IOException в случае неудачной попытке получить размер файла.
+     */
+    private long getStoreSize() throws IOException {
+        long storeSize = 0;
+        Path path = getPath(0, RECORD_FILE_POSTFIX);
+        for (int i = 0; Files.exists(path); i++) {
+            storeSize += Files.size(path);
+            path = getPath(i, RECORD_FILE_POSTFIX);
+        }
+
+        return storeSize;
+    }
+
+    /**
+     * @param records     записи, записываемые на диск.
+     * @param fileChannel используем для записи.
+     * @param fileIndex   индекс файла окончания файла.
+     * @throws IOException
+     */
+    private void writeRecords(Iterator<Record> records, FileChannel fileChannel, int fileIndex) throws IOException {
+        final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
+        while (records.hasNext()) {
+            Record record = records.next();
+
+            int filePosition = (int) fileChannel.position();
+            writeRecord(fileChannel, record);
+
+            indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition));
+        }
+
+        writeIndices(indices, APPEND_WRITE_OPTION);
+    }
+
+    /**
+     * @param fileChannel канал через который будем записывать.
+     * @param record      запись, которую сохраняем на диск.
+     * @throws IOException выбрасывает в случае ошибки записи.
+     */
+    private void writeRecord(FileChannel fileChannel, Record record) throws IOException {
+        ByteBuffer key = record.getKey();
+        ByteBuffer value = record.getValue();
+
+        writeByteBufferWithSize(fileChannel, key);
+        writeByteBufferWithSize(fileChannel, value);
+    }
+
+    /**
+     * Читает запись с диска.
+     *
+     * @param mappedByteBuffer через него осуществляется чтение.
+     * @return Запись, прочитанная с диска.
+     */
+    private Record readRecord(MappedByteBuffer mappedByteBuffer) {
+        ByteBuffer key = readByteBufferWithSize(mappedByteBuffer);
+        ByteBuffer value = readByteBufferWithSize(mappedByteBuffer);
+
+        if (key == null) {
+            throw new IllegalStateException("Key mustn't be null");
+        }
+
+        if (value == null) {
+            return Record.tombstone(key);
+        }
+
+        return Record.of(key, value);
+    }
+
+    /**
+     * Получаем читателей для каждого файла.
+     *
+     * @param fileIndices коллекция файловых индексов, используется для нахождения нужного файла.
+     * @return Возвращает читателей для каждого файла.
+     * @throws IOException
+     */
+    private Map<Integer, MappedByteBuffer> createReaders(Collection<Integer> fileIndices) throws IOException {
         Map<Integer, MappedByteBuffer> readers = new HashMap<>();
         for (int fileIndex : fileIndices) {
             final Path recordFile = getPath(fileIndex, RECORD_FILE_POSTFIX);
 
             try (var fileChannel = FileChannel.open(recordFile, COMMON_READ_OPEN_OPTIONS)) {
-                readers.put(fileIndex,
-                        fileChannel.map(
-                                FileChannel.MapMode.READ_ONLY,
-                                0,
-                                fileChannel.size()
-                        )
-                );
+                var mappedByteBuffer
+                        = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size());
+                readers.put(fileIndex, mappedByteBuffer);
             }
         }
 
@@ -236,40 +287,6 @@ class SSTable {
         int position = mappedByteBuffer.getInt();
 
         return new Index(key, fileIndex, position);
-    }
-
-    /**
-     * @param fileChannel канал через который будем записывать.
-     * @param record      запись, которую сохраняем на диск.
-     * @throws IOException выбрасывает в случае ошибки записи.
-     */
-    private void writeRecord(FileChannel fileChannel, Record record) throws IOException {
-        ByteBuffer key = record.getKey();
-        ByteBuffer value = record.getValue();
-
-        writeByteBufferWithSize(fileChannel, key);
-        writeByteBufferWithSize(fileChannel, value);
-    }
-
-    /**
-     * Читает запись с диска.
-     *
-     * @param mappedByteBuffer через него осуществляется чтение.
-     * @return Запись, прочитанная с диска.
-     */
-    private Record readRecord(MappedByteBuffer mappedByteBuffer) {
-        ByteBuffer key = readByteBufferWithSize(mappedByteBuffer);
-        ByteBuffer value = readByteBufferWithSize(mappedByteBuffer);
-
-        if (key == null) {
-            throw new IllegalStateException("Key mustn't be null");
-        }
-
-        if (value == null) {
-            return Record.tombstone(key);
-        }
-
-        return Record.of(key, value);
     }
 
     /**
