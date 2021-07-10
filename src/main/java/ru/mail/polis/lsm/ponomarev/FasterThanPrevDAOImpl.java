@@ -107,8 +107,6 @@ public final class FasterThanPrevDAOImpl implements DAO {
     }
 
     private int sizeOf(Record record) {
-        ByteBuffer key = record.getKey();
-
-        return key.remaining() + (record.isTombstone() ? 0 : record.getValue().remaining());
+        return record.getKey().remaining() + (record.isTombstone() ? 0 : record.getValue().remaining());
     }
 }
