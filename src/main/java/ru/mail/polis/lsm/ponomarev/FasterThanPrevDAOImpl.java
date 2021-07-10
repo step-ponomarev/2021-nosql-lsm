@@ -10,29 +10,21 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class UltraSuperFastDAOImpl implements DAO {
-    private static final int MEMORY_LIMIT = 123456;
+public class FasterThanPrevDAOImpl implements DAO {
+    private static final int MEMORY_LIMIT = 12345;
 
     private final NavigableMap<ByteBuffer, Record> store;
     private final SSTable table;
+    private volatile int storeSize;
 
     /**
      * @param config конфигурация дао
      * @throws IOException выбрасывает в случае чего вдруг, такое возможно
      */
-    public UltraSuperFastDAOImpl(DAOConfig config) throws IOException {
+    public FasterThanPrevDAOImpl(DAOConfig config) throws IOException {
         this.table = new SSTable(config.getDir());
         this.store = new ConcurrentSkipListMap<>();
-
-        var records = this.table.read(null, null);
-        while (records.hasNext()) {
-            var record = records.next();
-            if (record.isTombstone()) {
-                store.remove(record.getKey());
-            } else {
-                store.put(record.getKey(), record);
-            }
-        }
+        this.storeSize = 0;
     }
 
     @Override
@@ -74,15 +66,45 @@ public class UltraSuperFastDAOImpl implements DAO {
 
     @Override
     public void upsert(Record record) {
-        ByteBuffer key = record.getKey();
-        ByteBuffer value = record.getValue();
+        try {
+            ByteBuffer key = record.getKey();
+            ByteBuffer value = record.getValue();
 
-        Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
-        store.put(key, newRecord);
+            Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
+            store.put(key, newRecord);
+
+            updateStoreSize(newRecord);
+
+            if (storeSize >= MEMORY_LIMIT) {
+                synchronized (this) {
+                    if (storeSize >= MEMORY_LIMIT) {
+                        flushRecords();
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Store flushing are failed.", e.getCause());
+        }
     }
 
     @Override
     public void close() throws IOException {
         table.flush(store.values());
+    }
+
+    private void flushRecords() throws IOException {
+        table.flush(store.values());
+        this.storeSize = 0;
+
+    }
+
+    private synchronized void updateStoreSize(Record record) {
+        this.storeSize += sizeOf(record);
+    }
+
+    private int sizeOf(Record record) {
+        ByteBuffer key = record.getKey();
+
+        return key.remaining() + (record.isTombstone() ? 0 : record.getValue().remaining());
     }
 }
