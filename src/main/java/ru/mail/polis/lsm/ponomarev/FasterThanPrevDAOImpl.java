@@ -10,10 +10,10 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class FasterThanPrevDAOImpl implements DAO {
-    private static final int MEMORY_LIMIT = 12345;
+public final class FasterThanPrevDAOImpl implements DAO {
+    private static final int MEMORY_LIMIT = 1024 * 1024;
 
-    private final NavigableMap<ByteBuffer, Record> store;
+    private NavigableMap<ByteBuffer, Record> store;
     private final SSTable table;
     private volatile int storeSize;
 
@@ -30,38 +30,18 @@ public class FasterThanPrevDAOImpl implements DAO {
     @Override
     public Iterator<Record> range(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
         try {
-            var merged = DAO.merge(List.of(table.read(fromKey, toKey), store.values()
-                    .stream()
-                    .filter(r -> filterRecords(r, fromKey, toKey))
-                    .iterator())
-            );
+            var recordsFromDisk = table.read(fromKey, toKey);
+            var recordsFromStore = getStoredValues(fromKey, toKey);
+            
+            if (!recordsFromDisk.hasNext() && !recordsFromStore.hasNext()) {
+                return Collections.emptyIterator();
+            }
 
-            return merged;
+            return DAO.merge(List.of(recordsFromDisk, recordsFromStore));
         } catch (IOException e) {
             e.printStackTrace();
             return Collections.emptyIterator();
         }
-    }
-
-    private boolean filterRecords(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
-        if (record.isTombstone()) {
-            return false;
-        }
-
-        if (fromKey == null && toKey == null) {
-            return true;
-        }
-
-        if (fromKey == null) {
-            return record.getKey().compareTo(toKey) <= 0;
-        }
-
-        if (toKey == null) {
-            return record.getKey().compareTo(fromKey) >= 0;
-        }
-
-        return record.getKey().compareTo(fromKey) >= 0
-                && record.getKey().compareTo(toKey) <= 0;
     }
 
     @Override
@@ -90,12 +70,41 @@ public class FasterThanPrevDAOImpl implements DAO {
     @Override
     public void close() throws IOException {
         table.flush(store.values());
+        store = null;
+    }
+
+    private Iterator<Record> getStoredValues(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
+        return store.values()
+                .stream()
+                .filter(r -> filterRecords(r, fromKey, toKey))
+                .iterator();
+    }
+
+    private boolean filterRecords(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
+        if (record.isTombstone()) {
+            return false;
+        }
+
+        if (fromKey == null && toKey == null) {
+            return true;
+        }
+
+        if (fromKey == null) {
+            return record.getKey().compareTo(toKey) <= 0;
+        }
+
+        if (toKey == null) {
+            return record.getKey().compareTo(fromKey) >= 0;
+        }
+
+        return record.getKey().compareTo(fromKey) >= 0
+                && record.getKey().compareTo(toKey) <= 0;
     }
 
     private void flushRecords() throws IOException {
         table.flush(store.values());
+        store = new ConcurrentSkipListMap<>();
         this.storeSize = 0;
-
     }
 
     private synchronized void updateStoreSize(Record record) {

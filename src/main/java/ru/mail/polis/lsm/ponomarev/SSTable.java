@@ -4,6 +4,7 @@ import ru.mail.polis.lsm.Record;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -12,24 +13,44 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.stream.Collectors;
 
 class SSTable {
-    private static final String RECORD_FILE_POSTFIX = ".rec";
-    private static final String INDEX_FILE_POSTFIX = ".ind";
+    private static final class Index {
+        private final ByteBuffer key;
+        private final int position;
 
-    private static final Set<? extends OpenOption> READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
-    private static final Set<? extends OpenOption> WRITE_OPTIONS
+        public Index(ByteBuffer key, int position) {
+            this.key = key;
+            this.position = position;
+        }
+    }
+
+    private static final String RECORD_FILE_POSTFIX = ".rec";
+    private static final String INDEX_FILE_POSTFIX = ".index";
+
+    private static final Set<? extends OpenOption> COMMON_READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
+    private static final Set<? extends OpenOption> RECORDS_WRITE_OPTION
             = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.APPEND);
 
-    private final Path dir;
+    private static final Set<? extends OpenOption> INDICES_WRITE_OPTION
+            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
 
-    public SSTable(Path dir) {
+    private final Path dir;
+    private final NavigableMap<ByteBuffer, Index> indices;
+
+    public SSTable(Path dir) throws IOException {
         this.dir = dir;
+        this.indices = readIndices();
     }
 
     public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
@@ -40,15 +61,18 @@ class SSTable {
             return Collections.emptyIterator();
         }
 
-        try (var recordFileChannel = FileChannel.open(recordFile, READ_OPEN_OPTIONS)) {
+        try (var recordFileChannel = FileChannel.open(recordFile, COMMON_READ_OPEN_OPTIONS)) {
             var mappedByteBuffer = recordFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
                     recordFileChannel.size()
             );
 
-            while (mappedByteBuffer.hasRemaining()) {
+            List<Index> indexes = getIndexesInRange(fromKey, toKey);
+            for (var index : indexes) {
+                mappedByteBuffer.position(index.position);
                 Record record = readRecord(mappedByteBuffer);
+
                 if (record.isTombstone()) {
                     records.remove(record.getKey());
                 } else {
@@ -57,27 +81,34 @@ class SSTable {
             }
         }
 
-        if (fromKey == null && toKey == null) {
-            return records.values().iterator();
-        }
-
-        return records.values()
-                .stream()
-                .filter(r -> filterRecords(r, fromKey, toKey))
-                .iterator();
+        return records.values().iterator();
     }
 
-    private boolean filterRecords(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
+    private List<Index> getIndexesInRange(ByteBuffer fromKey, ByteBuffer toKey) {
+        return this.indices
+                .values()
+                .stream()
+                .filter(i -> filterIndex(i, fromKey, toKey))
+                .sorted(Comparator.comparing(l -> l.key))
+                .collect(Collectors.toList());
+    }
+
+    private boolean filterIndex(Index i, ByteBuffer fromKey, ByteBuffer toKey) {
+        ByteBuffer key = i.key;
+
+        if (fromKey == null && toKey == null) {
+            return true;
+        }
+
         if (fromKey == null) {
-            return record.getKey().compareTo(toKey) <= 0;
+            return key.compareTo(toKey) <= 0;
         }
 
         if (toKey == null) {
-            return record.getKey().compareTo(fromKey) >= 0;
+            return key.compareTo(fromKey) >= 0;
         }
 
-        return record.getKey().compareTo(fromKey) >= 0
-                && record.getKey().compareTo(toKey) <= 0;
+        return key.compareTo(fromKey) >= 0 && key.compareTo(toKey) <= 0;
     }
 
     /**
@@ -120,13 +151,6 @@ class SSTable {
         return buffer;
     }
 
-    //TODO: Нужно как-то читать индексы( их нужно держать в актуальном состоянии ). 
-    // Нужен индекс со смещением, чтобы переходить на нужную позицию в файле.  
-    // Индексы держим в памяти (?)
-    // Ищем по ключу нужный индекс
-    // Читаем пока не упремся в ключ справа
-    
-
     /**
      * Сохраняет данные на диск.
      *
@@ -134,38 +158,99 @@ class SSTable {
      * @throws IOException выбрасывает в случае ошибки записи.
      */
     public synchronized void flush(Iterable<Record> records) throws IOException {
-        Path indexFile = getPath(INDEX_FILE_POSTFIX);
         Path recordFile = getPath(RECORD_FILE_POSTFIX);
-
-        if (Files.notExists(indexFile)) {
-            Files.createFile(indexFile);
-        }
 
         if (Files.notExists(recordFile)) {
             Files.createFile(recordFile);
         }
 
-        try (var indexFileChannel = FileChannel.open(indexFile, WRITE_OPTIONS);
-             var recordFileChannel = FileChannel.open(recordFile, WRITE_OPTIONS);
-        ) {
+        Map<ByteBuffer, Index> indices = new TreeMap<>();
+        try (var recordFileChannel = FileChannel.open(recordFile, RECORDS_WRITE_OPTION)) {
             for (Record record : records) {
                 // Смещение ByteBuffer не превышает Integer.MAX_VALUE.
                 int positionOfCurrentKey = (int) recordFileChannel.position();
-                writeIndex(indexFileChannel, record.getKey(), positionOfCurrentKey);
                 writeRecord(recordFileChannel, record);
+
+                indices.put(record.getKey(), new Index(record.getKey(), positionOfCurrentKey));
+            }
+        }
+
+        writeIndices(indices);
+    }
+
+    /**
+     * Сохраняем индексы с учетом новых.
+     *
+     * @param indices новые индексы.
+     * @throws IOException в случае ошибки записи.
+     */
+    private void writeIndices(Map<ByteBuffer, Index> indices) throws IOException {
+        Path indexFile = getPath(INDEX_FILE_POSTFIX);
+
+        Files.deleteIfExists(indexFile);
+
+        try (var fileChannel = FileChannel.open(indexFile, INDICES_WRITE_OPTION)) {
+            for (var index : indices.values()) {
+                this.indices.put(index.key, index);
+            }
+
+            for (var index : this.indices.values()) {
+                writeIndex(fileChannel, index);
             }
         }
     }
 
     /**
+     * Читает индексы с диска.
+     *
+     * @return Возвращает мапу индексов.
+     * @throws IOException в случае ошибки чтения.
+     */
+    private NavigableMap<ByteBuffer, Index> readIndices() throws IOException {
+        final Path indexesFile = getPath(INDEX_FILE_POSTFIX);
+
+        if (Files.notExists(indexesFile)) {
+            return new ConcurrentSkipListMap<>();
+        }
+
+        Map<ByteBuffer, Index> indexes = new TreeMap<>();
+        try (var fileChannel = FileChannel.open(indexesFile, COMMON_READ_OPEN_OPTIONS)) {
+            var mappedByteBuffer = fileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    fileChannel.size()
+            );
+
+            while (mappedByteBuffer.hasRemaining()) {
+                Index index = readIndex(mappedByteBuffer);
+                indexes.put(index.key, index);
+            }
+        }
+
+        return new ConcurrentSkipListMap<>(indexes);
+    }
+
+    /**
+     * Читает индекс записи.
+     *
+     * @param mappedByteBuffer через него осуществляется чтение.
+     * @return Возвращает индекс записи.
+     */
+    private Index readIndex(MappedByteBuffer mappedByteBuffer) {
+        ByteBuffer key = readByteBuffer(mappedByteBuffer);
+        int position = mappedByteBuffer.getInt();
+
+        return new Index(key, position);
+    }
+
+    /**
      * @param fileChannel канал через который будем записывать.
-     * @param key         ключ, для которого мы сохраняем индекс.
-     * @param position    позиция для текущего ключа.
+     * @param index       индекс, который будет сохранен на диск.
      * @throws IOException выбрасывает в случае ошибки записи.
      */
-    private void writeIndex(FileChannel fileChannel, ByteBuffer key, int position) throws IOException {
-        writeByteBuffer(fileChannel, key);
-        writeByteBuffer(fileChannel, convertToByteBuffer(position));
+    private void writeIndex(FileChannel fileChannel, Index index) throws IOException {
+        writeByteBufferWithSize(fileChannel, index.key);
+        fileChannel.write(convertToByteBuffer(index.position));
     }
 
     /**
@@ -177,8 +262,8 @@ class SSTable {
         ByteBuffer key = record.getKey();
         ByteBuffer value = record.getValue();
 
-        writeByteBuffer(fileChannel, key);
-        writeByteBuffer(fileChannel, value);
+        writeByteBufferWithSize(fileChannel, key);
+        writeByteBufferWithSize(fileChannel, value);
     }
 
     /**
@@ -189,12 +274,12 @@ class SSTable {
      * @param buffer      запись, которую сохраняем на диск.
      * @throws IOException выбрасывает в случае ошибки записи.
      */
-    private void writeByteBuffer(FileChannel fileChannel, @Nullable ByteBuffer buffer) throws IOException {
+    private void writeByteBufferWithSize(FileChannel fileChannel, @Nullable ByteBuffer buffer) throws IOException {
         if (buffer == null) {
             fileChannel.write(convertToByteBuffer(-1));
             return;
         }
-
+        
         int size = buffer.remaining();
         fileChannel.write(convertToByteBuffer(size));
         fileChannel.write(buffer);
