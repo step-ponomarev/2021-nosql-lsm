@@ -70,6 +70,18 @@ class SSTable {
         }
     }
 
+    public synchronized void compact() throws IOException {
+        var records = read(null, null);
+        removeFiles();
+        flush(records);
+    }
+
+    private void removeFiles() {
+        for (var file : this.dir.toFile().listFiles()) {
+            file.delete();
+        }
+    }
+
     public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
         Collection<Index> indexes = filterIndices(readIndices().values(), fromKey, toKey);
         Set<Integer> fileIndices = indexes.stream()

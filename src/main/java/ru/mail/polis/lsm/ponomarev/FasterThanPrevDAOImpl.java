@@ -5,9 +5,12 @@ import ru.mail.polis.lsm.DAOConfig;
 import ru.mail.polis.lsm.Record;
 
 import javax.annotation.Nullable;
+import javax.swing.text.html.HTMLDocument;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class FasterThanPrevDAOImpl implements DAO {
@@ -59,6 +62,15 @@ public final class FasterThanPrevDAOImpl implements DAO {
             }
         } catch (IOException e) {
             throw new RuntimeException("Store flushing are failed.", e.getCause());
+        }
+    }
+
+    @Override
+    public void compact() {
+        try {
+            table.compact();
+        } catch (IOException e) {
+            throw new RuntimeException("Compaction is failed", e.getCause());
         }
     }
 
