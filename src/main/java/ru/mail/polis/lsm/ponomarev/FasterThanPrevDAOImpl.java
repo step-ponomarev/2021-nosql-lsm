@@ -4,24 +4,55 @@ import ru.mail.polis.lsm.DAO;
 import ru.mail.polis.lsm.DAOConfig;
 import ru.mail.polis.lsm.Record;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class FasterThanPrevDAOImpl implements DAO {
     private static final int MEMORY_LIMIT = 9999999;
 
-    private NavigableMap<ByteBuffer, Record> store;
+    public class RecordWithMetaData {
+        @Nonnull
+        private final Record record;
+        private final Long timeToLive;
+
+        public RecordWithMetaData(@Nonnull Record record) {
+            this(record, null);
+        }
+
+        public RecordWithMetaData(@Nonnull Record record, @Nullable Long timeToLive) {
+            this.record = record;
+            this.timeToLive = timeToLive;
+        }
+
+        public boolean isMortal() {
+            return timeToLive == null;
+        }
+
+        @Nonnull
+        public Record getRecord() {
+            return record;
+        }
+
+        @Nullable
+        public Long getTimeToLive() {
+            return timeToLive;
+        }
+    }
+
+    private NavigableMap<ByteBuffer, RecordWithMetaData> store;
     private final SSTable table;
     private volatile int storeSize;
 
     /**
      * @param config конфигурация дао
-     * @throws IOException выбрасывает в случае чего вдруг, такое возможно
      */
-    public FasterThanPrevDAOImpl(DAOConfig config) throws IOException {
+    public FasterThanPrevDAOImpl(DAOConfig config) {
         this.table = new SSTable(config.getDir());
         this.store = new ConcurrentSkipListMap<>();
         this.storeSize = 0;
@@ -46,7 +77,30 @@ public final class FasterThanPrevDAOImpl implements DAO {
             ByteBuffer value = record.getValue();
 
             Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
-            store.put(key, newRecord);
+            store.put(key, new RecordWithMetaData(record));
+
+            updateStoreSize(newRecord);
+
+            if (storeSize >= MEMORY_LIMIT) {
+                synchronized (this) {
+                    if (storeSize >= MEMORY_LIMIT) {
+                        flushRecords();
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Store flushing are failed.", e.getCause());
+        }
+    }
+
+    @Override
+    public void upsert(Record record, long timeToLive) {
+        try {
+            ByteBuffer key = record.getKey();
+            ByteBuffer value = record.getValue();
+
+            Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
+            store.put(key, new RecordWithMetaData(record, timeToLive));
 
             updateStoreSize(newRecord);
 

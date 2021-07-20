@@ -28,11 +28,17 @@ class SSTable {
         private final ByteBuffer key;
         private final int fileIndex;
         private final int position;
+        private final long expiredAt;
 
         public Index(ByteBuffer key, int fileIndex, int position) {
+            this(key, fileIndex, position, -1);
+        }
+
+        public Index(ByteBuffer key, int fileIndex, int position, long expiredAt) {
             this.key = key;
             this.fileIndex = fileIndex;
             this.position = position;
+            this.expiredAt = expiredAt;
         }
     }
 
@@ -51,7 +57,7 @@ class SSTable {
         this.dir = dir;
     }
 
-    public synchronized void flush(Iterator<Record> records) throws IOException {
+    public synchronized void flush(Iterator<FasterThanPrevDAOImpl.RecordWithMetaData> records) throws IOException {
         Path firstFile = getPath(0, RECORD_FILE_POSTFIX);
         if (Files.notExists(firstFile)) {
             Files.createFile(firstFile);
