@@ -71,6 +71,10 @@ public final class TtlDao implements DAO {
 
     @Override
     public void upsert(@Nonnull Record record, long timeToLive) {
+        if (timeToLive < 0) {
+            throw new IllegalArgumentException("timeToLive cannot be negative");
+        }
+        
         try {
             long expiredAt = Objects.equals(Long.MAX_VALUE, timeToLive)
                     ? timeToLive
