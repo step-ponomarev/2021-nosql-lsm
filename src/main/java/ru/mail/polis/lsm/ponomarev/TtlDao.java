@@ -22,6 +22,12 @@ public final class TtlDao implements DAO {
         private final Record record;
         private final long expiredAt;
 
+        /**
+         * Обертка для Record с дополнительными данными.
+         * 
+         * @param record запись.
+         * @param expiredAt время жизни.
+         */
         public RecordWithMetaData(@Nonnull Record record, long expiredAt) {
             this.record = record.getValue() == null
                     ? Record.tombstone(record.getKey())
@@ -44,6 +50,8 @@ public final class TtlDao implements DAO {
     private volatile int storeSize;
 
     /**
+     * Дао, поддерживающее время жизни для записи.
+     * 
      * @param config конфигурация дао
      */
     public TtlDao(DAOConfig config) {

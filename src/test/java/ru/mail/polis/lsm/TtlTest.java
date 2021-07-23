@@ -77,7 +77,7 @@ class TtlTest {
     }
 
     @Test
-    void mixedUpsertTest() throws IOException {
+    void mixedExpirationTest() throws IOException {
         final ThreadLocalRandom random = ThreadLocalRandom.current();
         final Map<ByteBuffer, ByteBuffer> map = generateMap(0, 3000);
         final long sleepTime = 250;
