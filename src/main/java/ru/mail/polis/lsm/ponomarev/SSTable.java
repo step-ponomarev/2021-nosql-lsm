@@ -53,7 +53,7 @@ class SSTable {
         this.dir = dir;
     }
 
-    public synchronized void flush(Iterator<FasterThanPrevDAOImpl.RecordWithMetaData> records) throws IOException {
+    public synchronized void flush(Iterator<TtlDao.RecordWithMetaData> records) throws IOException {
         Path firstFile = getPath(0, RECORD_FILE_POSTFIX);
         if (Files.notExists(firstFile)) {
             Files.createFile(firstFile);
@@ -116,10 +116,10 @@ class SSTable {
      * @param fileIndex   индекс файла окончания файла.
      * @throws IOException
      */
-    private void writeRecords(Iterator<FasterThanPrevDAOImpl.RecordWithMetaData> records, FileChannel fileChannel, int fileIndex) throws IOException {
+    private void writeRecords(Iterator<TtlDao.RecordWithMetaData> records, FileChannel fileChannel, int fileIndex) throws IOException {
         final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
         while (records.hasNext()) {
-            FasterThanPrevDAOImpl.RecordWithMetaData recordWithMetaData = records.next();
+            TtlDao.RecordWithMetaData recordWithMetaData = records.next();
             Record record = recordWithMetaData.getRecord();
 
             int filePosition = (int) fileChannel.position();

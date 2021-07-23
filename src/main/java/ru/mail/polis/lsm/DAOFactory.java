@@ -1,6 +1,6 @@
 package ru.mail.polis.lsm;
 
-import ru.mail.polis.lsm.ponomarev.FasterThanPrevDAOImpl;
+import ru.mail.polis.lsm.ponomarev.TtlDao;
 
 import java.io.IOException;
 
@@ -14,6 +14,6 @@ public final class DAOFactory {
      * Create an instance of {@link DAO} with supplied {@link DAOConfig}.
      */
     public static DAO create(DAOConfig config) throws IOException {
-        return new FasterThanPrevDAOImpl(config);
+        return new TtlDao(config);
     }
 }

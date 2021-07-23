@@ -11,9 +11,10 @@ import java.nio.ByteBuffer;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public final class FasterThanPrevDAOImpl implements DAO {
+public final class TtlDao implements DAO {
     private static final int MEMORY_LIMIT = 9999999;
 
     public static class RecordWithMetaData {
@@ -21,12 +22,10 @@ public final class FasterThanPrevDAOImpl implements DAO {
         private final Record record;
         private final long expiredAt;
 
-        public RecordWithMetaData(@Nonnull Record record) {
-            this(record, Long.MAX_VALUE);
-        }
-
         public RecordWithMetaData(@Nonnull Record record, long expiredAt) {
-            this.record = record;
+            this.record = record.getValue() == null
+                    ? Record.tombstone(record.getKey())
+                    : Record.of(record.getKey(), record.getValue());
             this.expiredAt = expiredAt;
         }
 
@@ -47,7 +46,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
     /**
      * @param config конфигурация дао
      */
-    public FasterThanPrevDAOImpl(DAOConfig config) {
+    public TtlDao(DAOConfig config) {
         this.table = new SSTable(config.getDir());
         this.store = new ConcurrentSkipListMap<>();
         this.storeSize = 0;
@@ -66,40 +65,21 @@ public final class FasterThanPrevDAOImpl implements DAO {
     }
 
     @Override
-    public void upsert(Record record) {
-        try {
-            ByteBuffer key = record.getKey();
-            ByteBuffer value = record.getValue();
-
-            Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
-            store.put(key, new RecordWithMetaData(record));
-
-            updateStoreSize(newRecord);
-
-            if (storeSize >= MEMORY_LIMIT) {
-                synchronized (this) {
-                    if (storeSize >= MEMORY_LIMIT) {
-                        flushRecords();
-                    }
-                }
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Store flushing are failed.", e.getCause());
-        }
+    public void upsert(@Nonnull Record record) {
+        this.upsert(record, Long.MAX_VALUE);
     }
 
     @Override
-    public void upsert(Record record, long timeToLive) {
+    public void upsert(@Nonnull Record record, long timeToLive) {
         try {
-            ByteBuffer key = record.getKey();
-            ByteBuffer value = record.getValue();
+            long expiredAt = Objects.equals(Long.MAX_VALUE, timeToLive)
+                    ? timeToLive
+                    : System.currentTimeMillis()
+                    + timeToLive;
 
-            Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
+            RecordWithMetaData recordWithMetaData = new RecordWithMetaData(record, expiredAt);
 
-            long expiredAt = System.currentTimeMillis() + timeToLive;
-            RecordWithMetaData recordWithMetaData = new RecordWithMetaData(newRecord, expiredAt);
-            store.put(key, recordWithMetaData);
-
+            store.put(record.getKey(), recordWithMetaData);
             updateStoreSize(recordWithMetaData);
 
             if (storeSize >= MEMORY_LIMIT) {
@@ -170,10 +150,6 @@ public final class FasterThanPrevDAOImpl implements DAO {
         Record record = recordWithMetaData.getRecord();
 
         return sizeOf(record) + Long.BYTES;
-    }
-
-    private synchronized void updateStoreSize(Record record) {
-        storeSize += sizeOf(record);
     }
 
     private int sizeOf(Record record) {
