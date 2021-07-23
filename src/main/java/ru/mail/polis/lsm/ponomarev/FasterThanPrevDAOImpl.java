@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public final class FasterThanPrevDAOImpl implements DAO {
     private static final int MEMORY_LIMIT = 9999999;
 
-    public class RecordWithMetaData {
+    public static class RecordWithMetaData {
         @Nonnull
         private final Record record;
         private final Long timeToLive;
@@ -31,7 +31,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
         }
 
         public boolean isMortal() {
-            return timeToLive == null;
+            return timeToLive != null;
         }
 
         @Nonnull
@@ -100,9 +100,10 @@ public final class FasterThanPrevDAOImpl implements DAO {
             ByteBuffer value = record.getValue();
 
             Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
-            store.put(key, new RecordWithMetaData(record, timeToLive));
+            RecordWithMetaData recordWithMetaData = new RecordWithMetaData(newRecord, timeToLive);
+            store.put(key, recordWithMetaData);
 
-            updateStoreSize(newRecord);
+            updateStoreSize(recordWithMetaData);
 
             if (storeSize >= MEMORY_LIMIT) {
                 synchronized (this) {
@@ -125,12 +126,19 @@ public final class FasterThanPrevDAOImpl implements DAO {
     private Iterator<Record> getStoredValues(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
         return store.values()
                 .stream()
-                .filter(r -> filterRecords(r.getRecord(), fromKey, toKey))
+                .filter(r -> filterRecords(r, fromKey, toKey))
                 .map(RecordWithMetaData::getRecord)
                 .iterator();
     }
 
-    private boolean filterRecords(Record record, ByteBuffer fromKey, ByteBuffer toKey) {
+    private boolean filterRecords(RecordWithMetaData recordWithMetaData, ByteBuffer fromKey, ByteBuffer toKey) {
+        long time = System.currentTimeMillis();        
+        if (recordWithMetaData.isMortal() && time <= recordWithMetaData.timeToLive) {
+            return false;
+        }
+        
+        Record record = recordWithMetaData.getRecord();
+        
         if (record.isTombstone()) {
             return false;
         }
@@ -157,11 +165,22 @@ public final class FasterThanPrevDAOImpl implements DAO {
         storeSize = 0;
     }
 
+    private synchronized void updateStoreSize(RecordWithMetaData record) {
+        storeSize += sizeOf(record);
+    }
+
+    private int sizeOf(RecordWithMetaData recordWithMetaData) {
+        Record record = recordWithMetaData.getRecord();
+
+        return sizeOf(record) + (recordWithMetaData.isMortal() ? Long.BYTES : 0);
+    }
+
     private synchronized void updateStoreSize(Record record) {
         storeSize += sizeOf(record);
     }
 
     private int sizeOf(Record record) {
-        return record.getKey().remaining() + (record.isTombstone() ? 0 : record.getValue().remaining());
+        return record.getKey().remaining()
+                + (record.isTombstone() ? 0 : record.getValue().remaining());
     }
 }

@@ -204,7 +204,7 @@ class SSTable {
     private boolean filterIndex(Index index, ByteBuffer fromKey, ByteBuffer toKey) {
         long time = System.currentTimeMillis();
 
-        if (time != 0 && time >= index.expiredAt) {
+        if (index.expiredAt != 0 && time >= index.expiredAt) {
             return false;
         }
 
@@ -240,7 +240,7 @@ class SSTable {
         long time = System.currentTimeMillis();
         try (var fileChannel = FileChannel.open(indexFile, writeOptions)) {
             for (var index : indices.values()) {
-                if (time >= index.expiredAt) {
+                if (index.expiredAt != 0 && time >= index.expiredAt) {
                     continue;
                 }
 

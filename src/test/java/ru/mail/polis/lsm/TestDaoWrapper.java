@@ -40,4 +40,8 @@ public class TestDaoWrapper implements DAO {
         return key == null ? null : key.asReadOnlyBuffer();
     }
 
+    @Override
+    public void upsert(Record record, long timeToLive) {
+        delegate.upsert(record, timeToLive);
+    }
 }
