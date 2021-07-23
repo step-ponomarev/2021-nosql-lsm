@@ -82,13 +82,13 @@ class TtlTest {
         final Map<ByteBuffer, ByteBuffer> map = generateMap(0, 3000);
         final long sleepTime = 250;
 
-        int shouldDieAmount = 0;
+        int minDeathAmount = 0;
         long ttl;
         for (Map.Entry<ByteBuffer, ByteBuffer> record : map.entrySet()) {
             ttl = random.nextBoolean() ? random.nextLong(500) : 0;
 
             if (ttl == 0 || ttl >= sleepTime) {
-                shouldDieAmount++;
+                minDeathAmount++;
             }
 
             dao.upsert(Record.of(record.getKey(), record.getValue()), ttl);
@@ -108,6 +108,6 @@ class TtlTest {
         }
 
         int deathAmount = map.size() - liveAmount;
-        Assertions.assertTrue(shouldDieAmount <= deathAmount);
+        Assertions.assertTrue(minDeathAmount <= deathAmount);
     }
 }
