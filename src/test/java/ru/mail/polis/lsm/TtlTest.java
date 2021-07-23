@@ -31,23 +31,23 @@ class TtlTest {
 
     @Test
     void baseExpirationTest() {
+        long startTime = System.currentTimeMillis();
+        long ttl = 300;
+
+        Map<ByteBuffer, ByteBuffer> map = generateMap(0, 120);
+        map.forEach((k, v) -> dao.upsert(Record.of(k, v), ttl));
+
         try {
-            long startTime = System.currentTimeMillis();
-            long ttl = 300;
-
-            Map<ByteBuffer, ByteBuffer> map = generateMap(0, 120);
-            map.forEach((k, v) -> dao.upsert(Record.of(k, v), ttl));
-
             Thread.sleep(ttl);
-
-            long finishTime = System.currentTimeMillis();
-            Assertions.assertTrue(finishTime - startTime > ttl);
-
-            Iterator<Record> records = dao.range(null, null);
-            Assertions.assertFalse(records.hasNext());
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Cannot sleep now", e);
         }
+
+        long finishTime = System.currentTimeMillis();
+        Assertions.assertTrue(finishTime - startTime > ttl);
+
+        Iterator<Record> records = dao.range(null, null);
+        Assertions.assertFalse(records.hasNext());
     }
 
     @Test
@@ -87,7 +87,7 @@ class TtlTest {
         for (Map.Entry<ByteBuffer, ByteBuffer> record : map.entrySet()) {
             ttl = random.nextBoolean() ? random.nextLong(500) : 0;
 
-            if (ttl >= sleepTime || ttl == 0) {
+            if (ttl == 0 || ttl >= sleepTime) {
                 shouldDieAmount++;
             }
 
@@ -97,17 +97,17 @@ class TtlTest {
         try {
             Thread.sleep(sleepTime);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Cannot sleep now", e);
         }
 
-        Iterator<Record> records = dao.range(null, null);
-
         int liveAmount = 0;
+        Iterator<Record> records = dao.range(null, null);
         while (records.hasNext()) {
             records.next();
             liveAmount++;
         }
 
-        Assertions.assertTrue(shouldDieAmount <= map.size() - liveAmount);
+        int deathAmount = map.size() - liveAmount;
+        Assertions.assertTrue(shouldDieAmount <= deathAmount);
     }
 }
