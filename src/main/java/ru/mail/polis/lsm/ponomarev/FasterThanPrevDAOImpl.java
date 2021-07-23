@@ -19,19 +19,15 @@ public final class FasterThanPrevDAOImpl implements DAO {
     public static class RecordWithMetaData {
         @Nonnull
         private final Record record;
-        private final Long timeToLive;
+        private final long expiredAt;
 
         public RecordWithMetaData(@Nonnull Record record) {
-            this(record, null);
+            this(record, Long.MAX_VALUE);
         }
 
-        public RecordWithMetaData(@Nonnull Record record, @Nullable Long timeToLive) {
+        public RecordWithMetaData(@Nonnull Record record, long expiredAt) {
             this.record = record;
-            this.timeToLive = timeToLive;
-        }
-
-        public boolean isMortal() {
-            return timeToLive != null;
+            this.expiredAt = expiredAt;
         }
 
         @Nonnull
@@ -39,9 +35,8 @@ public final class FasterThanPrevDAOImpl implements DAO {
             return record;
         }
 
-        @Nullable
-        public Long getTimeToLive() {
-            return timeToLive;
+        public long getExpiredTime() {
+            return expiredAt;
         }
     }
 
@@ -100,7 +95,9 @@ public final class FasterThanPrevDAOImpl implements DAO {
             ByteBuffer value = record.getValue();
 
             Record newRecord = value == null ? Record.tombstone(key) : Record.of(key, value);
-            RecordWithMetaData recordWithMetaData = new RecordWithMetaData(newRecord, timeToLive);
+
+            long expiredAt = System.currentTimeMillis() + timeToLive;
+            RecordWithMetaData recordWithMetaData = new RecordWithMetaData(newRecord, expiredAt);
             store.put(key, recordWithMetaData);
 
             updateStoreSize(recordWithMetaData);
@@ -132,13 +129,13 @@ public final class FasterThanPrevDAOImpl implements DAO {
     }
 
     private boolean filterRecords(RecordWithMetaData recordWithMetaData, ByteBuffer fromKey, ByteBuffer toKey) {
-        long time = System.currentTimeMillis();        
-        if (recordWithMetaData.isMortal() && time <= recordWithMetaData.timeToLive) {
+        long time = System.currentTimeMillis();
+        if (time >= recordWithMetaData.getExpiredTime()) {
             return false;
         }
-        
+
         Record record = recordWithMetaData.getRecord();
-        
+
         if (record.isTombstone()) {
             return false;
         }
@@ -172,7 +169,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
     private int sizeOf(RecordWithMetaData recordWithMetaData) {
         Record record = recordWithMetaData.getRecord();
 
-        return sizeOf(record) + (recordWithMetaData.isMortal() ? Long.BYTES : 0);
+        return sizeOf(record) + Long.BYTES;
     }
 
     private synchronized void updateStoreSize(Record record) {

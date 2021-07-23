@@ -30,10 +30,6 @@ class SSTable {
         private final int position;
         private final long expiredAt;
 
-        public Index(ByteBuffer key, int fileIndex, int position) {
-            this(key, fileIndex, position, -1);
-        }
-
         public Index(ByteBuffer key, int fileIndex, int position, long expiredAt) {
             this.key = key;
             this.fileIndex = fileIndex;
@@ -129,9 +125,7 @@ class SSTable {
             int filePosition = (int) fileChannel.position();
             writeRecord(fileChannel, record);
             
-            Long timeToLive = recordWithMetaData.getTimeToLive();
-            long expiredAt = timeToLive == null ? 0 : System.currentTimeMillis() + timeToLive;
-            indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition, expiredAt));
+            indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition, recordWithMetaData.getExpiredTime()));
         }
 
         writeIndices(indices, APPEND_WRITE_OPTION);
@@ -203,8 +197,7 @@ class SSTable {
 
     private boolean filterIndex(Index index, ByteBuffer fromKey, ByteBuffer toKey) {
         long time = System.currentTimeMillis();
-
-        if (index.expiredAt != 0 && time >= index.expiredAt) {
+        if (time >= index.expiredAt) {
             return false;
         }
 
@@ -240,7 +233,7 @@ class SSTable {
         long time = System.currentTimeMillis();
         try (var fileChannel = FileChannel.open(indexFile, writeOptions)) {
             for (var index : indices.values()) {
-                if (index.expiredAt != 0 && time >= index.expiredAt) {
+                if (time >= index.expiredAt) {
                     continue;
                 }
 
