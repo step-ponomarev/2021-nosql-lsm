@@ -120,15 +120,18 @@ class SSTable {
      * @param fileIndex   индекс файла окончания файла.
      * @throws IOException
      */
-    private void writeRecords(Iterator<Record> records, FileChannel fileChannel, int fileIndex) throws IOException {
+    private void writeRecords(Iterator<FasterThanPrevDAOImpl.RecordWithMetaData> records, FileChannel fileChannel, int fileIndex) throws IOException {
         final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
         while (records.hasNext()) {
-            Record record = records.next();
+            FasterThanPrevDAOImpl.RecordWithMetaData recordWithMetaData = records.next();
+            Record record = recordWithMetaData.getRecord();
 
             int filePosition = (int) fileChannel.position();
             writeRecord(fileChannel, record);
-
-            indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition));
+            
+            Long timeToLive = recordWithMetaData.getTimeToLive();
+            long expiredAt = timeToLive == null ? 0 : System.currentTimeMillis() + timeToLive;
+            indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition, expiredAt));
         }
 
         writeIndices(indices, APPEND_WRITE_OPTION);
@@ -198,8 +201,14 @@ class SSTable {
                 .collect(Collectors.toList());
     }
 
-    private boolean filterIndex(Index i, ByteBuffer fromKey, ByteBuffer toKey) {
-        ByteBuffer key = i.key;
+    private boolean filterIndex(Index index, ByteBuffer fromKey, ByteBuffer toKey) {
+        long time = System.currentTimeMillis();
+
+        if (time != 0 && time >= index.expiredAt) {
+            return false;
+        }
+
+        ByteBuffer key = index.key;
 
         if (fromKey == null && toKey == null) {
             return true;
@@ -228,8 +237,13 @@ class SSTable {
             Files.createFile(indexFile);
         }
 
+        long time = System.currentTimeMillis();
         try (var fileChannel = FileChannel.open(indexFile, writeOptions)) {
             for (var index : indices.values()) {
+                if (time >= index.expiredAt) {
+                    continue;
+                }
+
                 writeIndex(fileChannel, index);
             }
         }
@@ -246,6 +260,7 @@ class SSTable {
         writeByteBufferWithSize(fileChannel, index.key);
         fileChannel.write(convertToByteBuffer(index.fileIndex));
         fileChannel.write(convertToByteBuffer(index.position));
+        fileChannel.write(convertToByteBuffer(index.expiredAt));
     }
 
     /**
@@ -288,8 +303,9 @@ class SSTable {
         ByteBuffer key = readByteBufferWithSize(mappedByteBuffer);
         int fileIndex = mappedByteBuffer.getInt();
         int position = mappedByteBuffer.getInt();
+        long expiredAt = mappedByteBuffer.getLong();
 
-        return new Index(key, fileIndex, position);
+        return new Index(key, fileIndex, position, expiredAt);
     }
 
     /**
@@ -330,8 +346,12 @@ class SSTable {
         return buffer;
     }
 
-    private ByteBuffer convertToByteBuffer(int n) {
-        return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(n).array());
+    private ByteBuffer convertToByteBuffer(int i) {
+        return ByteBuffer.wrap(ByteBuffer.allocate(Integer.BYTES).putInt(i).array());
+    }
+    
+    private ByteBuffer convertToByteBuffer(long l) {
+        return ByteBuffer.wrap(ByteBuffer.allocate(Long.BYTES).putLong(l).array());
     }
 
     private Path getPath(String postfix) {

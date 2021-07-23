@@ -125,7 +125,8 @@ public final class FasterThanPrevDAOImpl implements DAO {
     private Iterator<Record> getStoredValues(@Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
         return store.values()
                 .stream()
-                .filter(r -> filterRecords(r, fromKey, toKey))
+                .filter(r -> filterRecords(r.getRecord(), fromKey, toKey))
+                .map(RecordWithMetaData::getRecord)
                 .iterator();
     }
 
