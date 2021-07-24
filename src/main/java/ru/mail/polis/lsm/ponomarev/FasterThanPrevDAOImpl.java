@@ -7,7 +7,9 @@ import ru.mail.polis.lsm.Record;
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public final class FasterThanPrevDAOImpl implements DAO {
@@ -18,6 +20,8 @@ public final class FasterThanPrevDAOImpl implements DAO {
     private volatile int storeSize;
 
     /**
+     * Простая имплементация дао.
+     *
      * @param config конфигурация дао
      * @throws IOException выбрасывает в случае чего вдруг, такое возможно
      */
@@ -35,7 +39,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
 
             return DAO.merge(List.of(recordsFromDisk, recordsFromStore));
         } catch (IOException e) {
-            throw new RuntimeException("Disk reading are failed.", e.getCause());
+            throw new DaoException("Disk reading are failed.", e);
         }
     }
 
@@ -58,7 +62,7 @@ public final class FasterThanPrevDAOImpl implements DAO {
                 }
             }
         } catch (IOException e) {
-            throw new RuntimeException("Store flushing are failed.", e.getCause());
+            throw new DaoException("Store flushing are failed.", e);
         }
     }
 

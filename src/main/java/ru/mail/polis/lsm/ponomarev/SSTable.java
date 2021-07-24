@@ -24,6 +24,17 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.stream.Collectors;
 
 class SSTable {
+    private static final String RECORD_FILE_POSTFIX = ".rec";
+    private static final String INDEX_FILE_POSTFIX = ".index";
+
+    private static final int FILE_SIZE_LIMIT = Integer.MAX_VALUE;
+
+    private static final Set<? extends OpenOption> COMMON_READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
+    private static final Set<? extends OpenOption> APPEND_WRITE_OPTION
+            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.APPEND);
+
+    private final Path dir;
+
     private static final class Index {
         private final ByteBuffer key;
         private final int fileIndex;
@@ -35,17 +46,6 @@ class SSTable {
             this.position = position;
         }
     }
-
-    private static final String RECORD_FILE_POSTFIX = ".rec";
-    private static final String INDEX_FILE_POSTFIX = ".index";
-
-    private static final int FILE_SIZE_LIMIT = Integer.MAX_VALUE;
-
-    private static final Set<? extends OpenOption> COMMON_READ_OPEN_OPTIONS = EnumSet.of(StandardOpenOption.READ);
-    private static final Set<? extends OpenOption> APPEND_WRITE_OPTION
-            = EnumSet.of(StandardOpenOption.WRITE, StandardOpenOption.APPEND);
-
-    private final Path dir;
 
     public SSTable(Path dir) {
         this.dir = dir;
@@ -94,6 +94,8 @@ class SSTable {
     }
 
     /**
+     * Получить размер хранилища.
+     *
      * @return суммарный вес хранилища.
      * @throws IOException в случае неудачной попытке получить размер файла.
      */
@@ -109,10 +111,12 @@ class SSTable {
     }
 
     /**
+     * Сохраняем записи на диск.
+     *
      * @param records     записи, записываемые на диск.
      * @param fileChannel используем для записи.
      * @param fileIndex   индекс файла окончания файла.
-     * @throws IOException
+     * @throws IOException в случае ошибки записи.
      */
     private void writeRecords(Iterator<Record> records, FileChannel fileChannel, int fileIndex) throws IOException {
         final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
@@ -129,6 +133,8 @@ class SSTable {
     }
 
     /**
+     * Сохраняем запись на диск.
+     *
      * @param fileChannel канал через который будем записывать.
      * @param record      запись, которую сохраняем на диск.
      * @throws IOException выбрасывает в случае ошибки записи.
@@ -149,12 +155,11 @@ class SSTable {
      */
     private Record readRecord(MappedByteBuffer mappedByteBuffer) {
         ByteBuffer key = readByteBufferWithSize(mappedByteBuffer);
-        ByteBuffer value = readByteBufferWithSize(mappedByteBuffer);
-
         if (key == null) {
             throw new IllegalStateException("Key mustn't be null");
         }
 
+        ByteBuffer value = readByteBufferWithSize(mappedByteBuffer);
         if (value == null) {
             return Record.tombstone(key);
         }
@@ -163,11 +168,11 @@ class SSTable {
     }
 
     /**
-     * Получаем читателей для каждого файла.
+     * Получает читателей для каждого файла по индексу.
      *
      * @param fileIndices коллекция файловых индексов, используется для нахождения нужного файла.
      * @return Возвращает читателей для каждого файла.
-     * @throws IOException
+     * @throws IOException в случае ошибки с открытием файла.
      */
     private Map<Integer, MappedByteBuffer> createReaders(Collection<Integer> fileIndices) throws IOException {
         Map<Integer, MappedByteBuffer> readers = new HashMap<>();
@@ -184,7 +189,11 @@ class SSTable {
         return readers;
     }
 
-    private Collection<Index> filterIndices(Collection<Index> indices, @Nullable ByteBuffer fromKey, @Nullable ByteBuffer toKey) {
+    private Collection<Index> filterIndices(
+            Collection<Index> indices,
+            @Nullable ByteBuffer fromKey,
+            @Nullable ByteBuffer toKey
+    ) {
         return indices
                 .stream()
                 .filter(i -> filterIndex(i, fromKey, toKey))
@@ -193,12 +202,11 @@ class SSTable {
     }
 
     private boolean filterIndex(Index i, ByteBuffer fromKey, ByteBuffer toKey) {
-        ByteBuffer key = i.key;
-
         if (fromKey == null && toKey == null) {
             return true;
         }
 
+        ByteBuffer key = i.key;
         if (fromKey == null) {
             return key.compareTo(toKey) <= 0;
         }
@@ -215,7 +223,10 @@ class SSTable {
      *
      * @throws IOException в случае ошибки записи.
      */
-    private void writeIndices(NavigableMap<ByteBuffer, Index> indices, Set<? extends OpenOption> writeOptions) throws IOException {
+    private void writeIndices(
+            NavigableMap<ByteBuffer, Index> indices,
+            Set<? extends OpenOption> writeOptions
+    ) throws IOException {
         Path indexFile = getPath(INDEX_FILE_POSTFIX);
 
         if (Files.notExists(indexFile)) {
