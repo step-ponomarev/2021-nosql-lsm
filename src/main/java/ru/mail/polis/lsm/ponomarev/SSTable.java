@@ -63,7 +63,10 @@ class SSTable {
     }
 
     public synchronized Iterator<Record> read(ByteBuffer fromKey, ByteBuffer toKey) throws IOException {
-        Collection<Index> indexes = filterIndices(readIndices().values(), fromKey, toKey);
+        Map<ByteBuffer, Index> indices = readIndices();
+        Collection<Index> indexes = (fromKey == null && toKey == null)
+                ? indices.values()
+                : filterIndices(indices.values(), fromKey, toKey);
         Set<Integer> fileIndices = indexes.stream()
                 .map(i -> i.fileIndex)
                 .collect(Collectors.toSet());
@@ -189,15 +192,10 @@ class SSTable {
         return indices
                 .stream()
                 .filter(i -> filterIndex(i, fromKey, toKey))
-                .sorted(Comparator.comparing(l -> l.key))
                 .collect(Collectors.toList());
     }
 
     private boolean filterIndex(Index i, ByteBuffer fromKey, ByteBuffer toKey) {
-        if (fromKey == null && toKey == null) {
-            return true;
-        }
-
         ByteBuffer key = i.key;
         if (fromKey == null) {
             return key.compareTo(toKey) <= 0;
