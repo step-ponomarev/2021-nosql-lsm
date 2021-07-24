@@ -15,6 +15,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.stream.Collectors;
 
+//TODO: Ускорить поиск индексов 
+// 1) Сохранять только актуальные индексы 
+// 2) Попробовать бинарный поиск по файлу
+
 class SSTable {
     private static final String RECORD_FILE_POSTFIX = ".rec";
     private static final String INDEX_FILE_POSTFIX = ".index";
