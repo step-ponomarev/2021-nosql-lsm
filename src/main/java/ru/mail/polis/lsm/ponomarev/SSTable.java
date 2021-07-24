@@ -11,15 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Set;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.stream.Collectors;
 
@@ -77,7 +69,7 @@ class SSTable {
                 .collect(Collectors.toSet());
 
         Map<Integer, MappedByteBuffer> fileIndexToMappedByteBuffer = createReaders(fileIndices);
-        final Map<ByteBuffer, Record> records = new ConcurrentSkipListMap<>();
+        final Map<ByteBuffer, Record> records = new TreeMap<>();
         for (var index : indexes) {
             var mappedByteBuffer = fileIndexToMappedByteBuffer.get(index.fileIndex);
             mappedByteBuffer.position(index.position);
@@ -119,7 +111,7 @@ class SSTable {
      * @throws IOException в случае ошибки записи.
      */
     private void writeRecords(Iterator<Record> records, FileChannel fileChannel, int fileIndex) throws IOException {
-        final NavigableMap<ByteBuffer, Index> indices = new ConcurrentSkipListMap<>();
+        final Map<ByteBuffer, Index> indices = new TreeMap<>();
         while (records.hasNext()) {
             Record record = records.next();
 
@@ -129,7 +121,7 @@ class SSTable {
             indices.put(record.getKey(), new Index(record.getKey(), fileIndex, filePosition));
         }
 
-        writeIndices(indices, APPEND_WRITE_OPTION);
+        writeIndices(indices.values(), APPEND_WRITE_OPTION);
     }
 
     /**
@@ -224,7 +216,7 @@ class SSTable {
      * @throws IOException в случае ошибки записи.
      */
     private void writeIndices(
-            NavigableMap<ByteBuffer, Index> indices,
+            Collection<Index> indices,
             Set<? extends OpenOption> writeOptions
     ) throws IOException {
         Path indexFile = getPath(INDEX_FILE_POSTFIX);
@@ -234,7 +226,7 @@ class SSTable {
         }
 
         try (var fileChannel = FileChannel.open(indexFile, writeOptions)) {
-            for (var index : indices.values()) {
+            for (var index : indices) {
                 writeIndex(fileChannel, index);
             }
         }
